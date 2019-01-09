@@ -155,12 +155,11 @@ bindsym XF86AudioMute		exec --no-startup-id pamixer -t
 
 ### Keyboard
 
+# change keyboard layout
 bindsym $win+k                  exec --no-startup-id $HOME/Scripts/keyboardToggle.sh
-### Workspace Rename
 
-#bindsym $win+r                  exec --no-startup-id $HOME/.config/i3/rename_workspace_script
-
-bindsym $win+l                  exec --no-startup-id i3lock-fancy -- scrot
+#lock the screen
+bindsym $win+l                  exec --no-startup-id "setxkbmap us; i3lock-fancy -- scrot"
 
 #############################################
 #			                    #
