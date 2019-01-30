@@ -255,8 +255,9 @@ assign [class="(?i)firefox"] $ws2
 assign [class="(?i)mail"] $ws3
 assign [class="(?i)thunderbird"] $ws3
 assign [class="(?i)virtualbox"] $ws4
-assign [title="htop"] $ws10
+assign [class="htop"] $ws10
 assign [class="(?i)discord"] $ws8
+assign [class="ranger"] $ws1
 
 #switch to workspace
 bindsym $mod+1 workspace $ws1 
