@@ -252,6 +252,7 @@ set $ws10 "10: system"
 ##################################################
 
 assign [class="(?i)firefox"] $ws2
+assign [class="(?i)qutebrowser"] $ws2
 assign [class="(?i)mail"] $ws3
 assign [class="(?i)thunderbird"] $ws3
 assign [class="(?i)virtualbox"] $ws4
@@ -290,7 +291,7 @@ bindsym $mod+Shift+c reload
 # restart i3 inplace (preserves your layout/session, can be used to upgrade i3)
 bindsym $mod+Shift+r restart
 # exit i3 (logs you out of your X session)
-bindsym $mod+Shift+e exec --no-startup-id "i3-nagbar -t warning -m 'You pressed the exit shortcut. Do you really want to exit i3? This will end your X session.' -b 'Yes, exit i3' 'i3-msg exit'"
+bindsym $mod+Shift+e exit
 
 set $mode_gaps Gaps: (o) outer, (i) inner
 set $mode_gaps_outer Outer Gaps: +|-|0 (local), Shift + +|-|0 (global)
