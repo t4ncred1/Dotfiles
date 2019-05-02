@@ -1,0 +1,5 @@
+#!/bin/bash
+
+kill $(ps aux | egrep 'compton$|compton -b$' | awk '{print $2}')
+compton -b
+i3-msg 'restart'

@@ -1,0 +1,13 @@
+output HDMI1
+off
+output HDMI2
+off
+output VIRTUAL1
+off
+output eDP1
+off
+output DP1
+mode 1440x900
+pos 0x0
+primary
+rate 59.89
