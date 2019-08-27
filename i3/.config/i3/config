@@ -158,10 +158,10 @@ bindsym XF86AudioMute		exec --no-startup-id pamixer -t
 ### keyboard
 
 # change keyboard layout
-bindsym $alt+k                  exec --no-startup-id $home/scripts/keyboardtoggle.sh
+bindsym $alt+k                  exec --no-startup-id $HOME/Scripts/keyboardToggle.sh
 
 #lock the screen
-bindsym $alt+l                  exec --no-startup-id "setxkbmap us; i3lock-fancy -- scrot"
+bindsym $alt+l                  exec --no-startup-id "setxkbmap us; i3lock-fancy"
 
 #############################################
 #			                    #
@@ -261,6 +261,8 @@ assign [class="(?i)virtualbox"] $ws4
 assign [class="htop"] $ws10
 assign [class="(?i)discord"] $ws8
 assign [class="ranger"] $ws1
+
+for_window [class="Bitwarden"] floating enable
 
 #switch to workspace
 bindsym $win+1 workspace $ws1 
