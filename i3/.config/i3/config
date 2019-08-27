@@ -163,6 +163,9 @@ bindsym $alt+k                  exec --no-startup-id $HOME/Scripts/keyboardToggl
 #lock the screen
 bindsym $alt+l                  exec --no-startup-id "setxkbmap us; i3lock-fancy"
 
+#screenshot
+bindsym $alt+s                 exec --no-startup-id $HOME/Scripts/screenshot.sh
+
 #############################################
 #			                    #
 #               standard config             #
