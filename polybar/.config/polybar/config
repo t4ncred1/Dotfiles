@@ -40,7 +40,8 @@ alert = ${self.red}
 height = 27
 ;offset-x = 20
 ;offset-y = 1%
-radius = 10.0
+;radius = 10.0
+radius = 0.0
 ;fixed-center = false
 ;fixed-center = true
 
@@ -51,8 +52,8 @@ line-size = 3
 ;line-color = #f00
 line-color = #75aaff
 
-border-size = 4
-border-color = #00000000
+;border-size = 4
+;border-color = #00000000
 
 padding-left = 0
 padding-right = 2
@@ -66,8 +67,7 @@ font-2 = Hack Nerd Font Mono:pixelsize=10;1
 
 modules-left = i3
 modules-center = xwindow 
-modules-right = pulseaudio xkeyboard wlan eth battery date powermenu
-
+modules-right = pulseaudio xbacklight xkeyboard wlan eth battery date 
 tray-position =
 ;tray-padding = 2
 ;tray-transparent = true
@@ -206,19 +206,19 @@ label-song-ellipsis = true
 [module/xbacklight]
 type = internal/xbacklight
 
-format = <label> <bar>
-label = BL
+format = <label> 
+label = %{F#5f819d}BL%{F-} %percentage%%
 
-bar-width = 12
-bar-indicator = |
-bar-indicator-foreground = #fff
-bar-indicator-font = 2
-bar-fill = ─
-bar-fill-font = 2
-bar-fill-foreground = ${colors.blue}
-bar-empty = ─
-bar-empty-font = 2
-bar-empty-foreground = ${colors.foreground-alt}
+;bar-width = 12
+;bar-indicator = |
+;bar-indicator-foreground = #fff
+;bar-indicator-font = 2
+;bar-fill = ─
+;bar-fill-font = 2
+;bar-fill-foreground = ${colors.blue}
+;bar-empty = ─
+;bar-empty-font = 2
+;bar-empty-foreground = ${colors.foreground-alt}
 
 [module/backlight-acpi]
 inherit = module/xbacklight
@@ -451,7 +451,7 @@ screenchange-reload = true
 ;compositing-border = over
 
 [global/wm]
-margin-top = 5
+margin-top = 0
 margin-bottom = 5
 
 [bar/bottombar]
