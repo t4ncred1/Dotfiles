@@ -80,10 +80,10 @@ exec_always --no-startup-id dunst
 
 exec --no-startup-id greenclip daemon
 
-## Maps Menu key to Mod3
+## Maps caps lock to escape key and control
 
-#exec xmodmap -e "add Mod3 = Menu"
-
+exec --no-startup-id $HOME/Scripts/capsCtrlEsc.sh
+ 
 #############################################
 #	               	                    #
 #            Visuals Configuration          #
