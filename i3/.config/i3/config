@@ -298,56 +298,6 @@ bindsym $win+shift+r restart
 # exit i3 (logs you out of your x session)
 bindsym $win+shift+e exit
 
-# no-gaps mode
-bindsym $win+g gaps inner current set 0; gaps outer current set 0
-bindsym $win+shift+g gaps inner current set $gaps_inner; gaps outer current set $gaps_outer
-
-
-# gaps modifier
-set $mode_gaps Gaps: (o) outer, (i) inner
-set $mode_gaps_outer Outer Gaps: h|l|0 (local), Shift + h|l|0 (global)
-set $mode_gaps_inner Inner Gaps: h|l|0 (local), Shift + h|l|0 (global)
-
-mode "$mode_gaps" {
-        bindsym o      mode "$mode_gaps_outer"
-        bindsym i      mode "$mode_gaps_inner"
-        bindsym Return mode "default"
-        bindsym Escape mode "default"
-}
-
-mode "$mode_gaps_inner" {
-        bindsym h     gaps inner current plus 5
-        bindsym l     gaps inner current minus 5
-        bindsym j     gaps inner current plus 5
-        bindsym k     gaps inner current minus 5
-        bindsym 0     gaps inner current set 0
-
-        bindsym Shift+h     gaps inner all plus 5
-        bindsym Shift+l     gaps inner all minus 5 
-        bindsym Shift+j     gaps inner all plus 5
-        bindsym Shift+k     gaps inner all minus 5
-        bindsym Shift+0     gaps inner all set 0
-
-        bindsym Return mode "default"
-        bindsym Escape mode "default"
-}
-mode "$mode_gaps_outer" {
-        bindsym h  gaps outer current plus 5
-        bindsym j  gaps outer current plus 5
-        bindsym l  gaps outer current minus 5
-        bindsym k  gaps outer current minus 5
-        bindsym 0  gaps outer current set 0
-
-        bindsym Shift+h  gaps outer all plus 5
-        bindsym Shift+l gaps outer all minus 5
-        bindsym Shift+j  gaps outer all plus 5
-        bindsym Shift+k gaps outer all minus 5
-        bindsym Shift+0     gaps outer all set 0
-
-        bindsym Return mode "default"
-        bindsym Escape mode "default"
-}
-
 # resize window (you can also use the mouse for that)
 
 mode "resize" {
