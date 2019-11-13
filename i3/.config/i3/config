@@ -64,6 +64,10 @@ floating_modifier $win
 
 exec_always --no-startup-id $HOME/.config/polybar/launch.sh
 
+### Bar launcher
+
+exec_always --no-startup-id redshift -l 45.23:9.09 -t 6000:3250
+
 ### Composite Manager
 
 exec --no-startup-id compton -b 
@@ -92,9 +96,11 @@ exec --no-startup-id $HOME/Scripts/capsCtrlEsc.sh
 
 
 ### Setting border width
- 
-default_border pixel 2
-new_window pixel 2
+
+set $border_pixel 4
+
+default_border pixel $border_pixel 
+new_window pixel $border_pixel
 
 ### Setting gaps between windows
 
@@ -212,10 +218,10 @@ bindsym $win+shift+up move up
 bindsym $win+shift+right move right
 
 # split in horizontal orientation
-bindsym $win+b split h
+bindsym $win+$splith split h
 
 # split in vertical orientation
-bindsym $win+v split v
+bindsym $win+$splitv split v
 
 # enter fullscreen mode for the focused container
 bindsym $win+f fullscreen toggle
@@ -226,7 +232,7 @@ bindsym $win+w layout tabbed
 bindsym $win+e layout toggle split
 
 # toggle tiling / floating
-bindsym $win+shift+space floating toggle , [tiling] border pixel 2, [floating] border pixel 2
+bindsym $win+shift+space floating toggle , [tiling] border pixel $border_pixel, [floating] border pixel $border_pixel
 
 # change focus between tiling / floating windows
 bindsym $win+space focus mode_toggle
@@ -235,7 +241,7 @@ bindsym $win+space focus mode_toggle
 bindsym $win+a focus parent
 
 # focus the child container
-#bindsym $win+d focus child
+bindsym $win+d focus child
 
 # define names for default workspaces for which we configure key bindings later on.
 # we use variables to avoid repeating the names in multiple places.
