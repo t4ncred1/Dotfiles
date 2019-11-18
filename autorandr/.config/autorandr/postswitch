@@ -1,5 +1,5 @@
 #!/bin/bash
 
-kill $(ps aux | egrep 'compton$|compton -b$' | awk '{print $2}')
-compton -b
+kill $(ps aux | egrep 'picom$|picom -b$' | awk '{print $2}')
+picom -b
 i3-msg 'restart'
