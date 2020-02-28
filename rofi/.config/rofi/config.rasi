@@ -139,6 +139,7 @@ configuration {
 /*	me-accept-entry: "MouseDPrimary";*/
 /*	me-accept-custom: "Control+MouseDPrimary";*/
 	modi: "clipboard:greenclip print";
+        modi: "poweroff:~/Scripts/poweroff_rofi.sh";
 
 	
 }

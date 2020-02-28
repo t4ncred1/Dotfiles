@@ -185,7 +185,7 @@ bindsym $win+Return              exec --no-startup-id i3-sensible-terminal
 bindsym $win+shift+q kill
 
 # start rofi wrapped with dmenu (a program launcher)
-bindsym $alt+space exec --no-startup-id rofi -modi "combi#run#clipboard:greenclip print" -show "combi"
+bindsym $alt+space exec --no-startup-id rofi -modi "combi#poweroff:~/Scripts/poweroff_rofi.sh#clipboard:greenclip print" -show "combi"
 bindsym $alt+c exec --no-startup-id rofi -modi "clipboard:greenclip print" -show clipboard 
 
 # there also is the (new) i3-dmenu-desktop which only displays applications
