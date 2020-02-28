@@ -1,0 +1,15 @@
+[submodule "vim/.vim/bundle/goyo.vim"]
+	path = vim/.vim/bundle/goyo.vim
+	url = https://github.com/junegunn/goyo.vim
+[submodule "vim/.vim/bundle/tabular"]
+	path = vim/.vim/bundle/tabular
+	url = https://github.com/godlygeek/tabular
+[submodule "vim/.vim/bundle/vim-localvimrc"]
+	path = vim/.vim/bundle/vim-localvimrc
+	url = https://github.com/embear/vim-localvimrc
+[submodule "vim/.vim/bundle/vim-markdown"]
+	path = vim/.vim/bundle/vim-markdown
+	url = https://github.com/plasticboy/vim-markdown
+[submodule "vim/.vim/bundle/vim-racket"]
+	path = vim/.vim/bundle/vim-racket
+	url = https://github.com/wlangstroth/vim-racket.git

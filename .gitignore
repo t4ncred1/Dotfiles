@@ -1,3 +1,5 @@
 #stow configuration file, should be ignored.
 .stowrc
 .stow-local-ignore
+#vimrc config
+**/.netrwhist
