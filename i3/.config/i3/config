@@ -61,7 +61,7 @@ floating_modifier $win
 
 ### Mega launcher
 
-exec --no-startup-id i3-msg 'scratchpad; exec /usr/bin/megasync'
+exec --no-startup-id /usr/bin/megasync
 
 ### Bar launcher
 
@@ -259,6 +259,10 @@ set $ws8 "8: im"
 set $ws9 "9: music"
 set $ws10 "10: system"
 
+#scratchpad commands
+bindsym $win+minus scratchpad show  
+bindsym $win+Shift+minus move scratchpad
+
 ##################################################
 #			                         #    
 #             workspace assignments              #
@@ -273,7 +277,7 @@ assign [class="(?i)virtualbox"] $ws4
 assign [class="htop"] $ws10
 assign [class="(?i)discord"] $ws8
 assign [class="ranger"] $ws1
-assign [class="megasync"] scratchpad
+assign [class="MEGAsync"] scratchpad
 
 for_window [class="Bitwarden"] floating enable
 
