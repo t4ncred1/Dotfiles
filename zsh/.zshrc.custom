@@ -10,4 +10,4 @@
     export TERM="termite"
 
 #Default VISUAL editor
-    export VISUAL="termite"
+    export VISUAL="vi"
