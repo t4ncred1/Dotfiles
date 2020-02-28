@@ -3,5 +3,5 @@
 #
 
 [[ -f ~/.bashrc ]] && . ~/.bashrc
-source /usr/bin/tdm
+#source /usr/bin/tdm --silent
 export VISUAL=vim
