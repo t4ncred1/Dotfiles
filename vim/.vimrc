@@ -48,6 +48,7 @@ set softtabstop=4				"
 set tabstop=8					" 
 set expandtab					" 
 
+let g:localvimrc_persistent=-1
 
 nnoremap <C-L> :nohl<CR><C-L>
 
