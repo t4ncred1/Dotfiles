@@ -17,7 +17,10 @@ set modelineexpr				" allow for modelines in files
 
 set laststatus=2 				" always active statusline
 
-colorscheme jellybeans 
+packadd vim-deep-space                          " color customization
+set background=dark                             " 
+set termguicolors                               " 
+colorscheme deep-space                          " 
 
 let g:netrw_browsex_viewer="firefox --new-tab"	" open http links in a new firefox tab
 
