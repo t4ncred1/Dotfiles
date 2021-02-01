@@ -20,6 +20,7 @@ set laststatus=2 				" always active statusline
 packadd vim-deep-space                          " color customization
 set background=dark                             " 
 set termguicolors                               " 
+let g:deepspace_italics=1                       " 
 colorscheme deep-space                          " 
 
 let g:netrw_browsex_viewer="firefox --new-tab"	" open http links in a new firefox tab
@@ -103,6 +104,3 @@ au InsertLeave * hi statusline ctermfg=green
 hi statusline ctermfg=green
 hi statusline ctermbg=black
 hi statusline cterm=bold
-
-set ruler
-
