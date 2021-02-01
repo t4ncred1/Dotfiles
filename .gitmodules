@@ -1,0 +1,12 @@
+[submodule "vim/.vim/pack/main/start/vim-latex"]
+	path = vim/.vim/pack/main/start/vim-latex
+	url = https://github.com/vim-latex/vim-latex
+[submodule "vim/.vim/pack/main/start/vim-surround"]
+	path = vim/.vim/pack/main/start/vim-surround
+	url = https://github.com/tpope/vim-surround
+[submodule "vim/.vim/pack/main/start/vim-sensible"]
+	path = vim/.vim/pack/main/start/vim-sensible
+	url = https://github.com/tpope/vim-sensible
+[submodule "vim/.vim/pack/main/opt/vim-deep-space"]
+	path = vim/.vim/pack/main/opt/vim-deep-space
+	url = https://github.com/tyrannicaltoucan/vim-deep-space

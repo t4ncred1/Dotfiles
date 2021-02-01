@@ -21,8 +21,6 @@ colorscheme jellybeans
 
 let g:netrw_browsex_viewer="firefox --new-tab"	" open http links in a new firefox tab
 
-execute pathogen#infect()
-
 autocmd VimResized * execute "normal! \<c-w>=" 	" when resizing, divide the screen equally
 
 set hidden 					" change buffer without saving
