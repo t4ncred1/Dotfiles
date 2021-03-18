@@ -54,6 +54,7 @@ let g:localvimrc_persistent=-1
 
 nnoremap <C-L> :nohl<CR><C-L>
 
+let $RTP = split(&runtimepath, ',')[0]
 
 "                 _ _ _             
 "  ___ _ __   ___| | (_)_ __   __ _ 
