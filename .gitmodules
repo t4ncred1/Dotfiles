@@ -10,3 +10,6 @@
 [submodule "vim/.vim/pack/main/opt/vim-deep-space"]
 	path = vim/.vim/pack/main/opt/vim-deep-space
 	url = https://github.com/tyrannicaltoucan/vim-deep-space
+[submodule "vim/.vim/pack/study/start/vim-roadmap"]
+	path = vim/.vim/pack/study/start/vim-roadmap
+	url = ./vim/.vim/pack/study/start/vim-roadmap
