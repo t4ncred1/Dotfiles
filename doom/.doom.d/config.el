@@ -70,3 +70,8 @@
        "c" #'calc
        "q" #'quick-calc
        "g" #'calc-grab-region))
+
+;; suggested config from :lang cc
+(after! ccls
+  (setq ccls-initialization-options '(:index (:comments 0) :completion (:detailedLabel t)))
+  (set-lsp-priority! 'ccls 2)) ; optional as ccls is the default in Doom
