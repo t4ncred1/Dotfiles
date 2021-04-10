@@ -55,7 +55,8 @@
 ;; You can also try 'gd' (or 'C-c c d') to jump to their definition and see how
 ;; they are implemented.
 
-(map! :map pdf-view-mode-map
-      :after org-noter
-      :desc "Insert a note in org noter" :n "i" #'org-noter-insert-note
-      )
+(map! (:when (featurep! :lang org +noter)
+        :map pdf-view-mode-map
+        :after org-noter
+        :desc "Insert a note in org noter"
+        :nvi "i" #'org-noter-insert-note))
