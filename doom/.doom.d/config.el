@@ -60,3 +60,11 @@
         :after org-noter
         :desc "Insert a note in org noter"
         :nvi "i" #'org-noter-insert-note))
+
+;; mappings for calc
+(map! :leader
+      (:prefix-map ("=" . "calc")
+       "=" #'calc-dispatch
+       "c" #'calc
+       "q" #'quick-calc
+       "g" #'calc-grab-region))
