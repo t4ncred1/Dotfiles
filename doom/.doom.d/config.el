@@ -55,6 +55,8 @@
 ;; You can also try 'gd' (or 'C-c c d') to jump to their definition and see how
 ;; they are implemented.
 
+;; Add a mapping to insert a note when org noter is active and pdf-view is enabled
+;; in a buffer.
 (map! (:when (featurep! :lang org +noter)
         :map pdf-view-mode-map
         :after org-noter
