@@ -29,13 +29,20 @@
 ;; `load-theme' function. This is the default:
 (setq doom-theme 'doom-one)
 
-;; If you use `org' and don't want your org files in the default location below,
+;; Change the theme depending on the time
+(let ((hour (nth 2 (decode-time))))
+  (if (and (> hour 7) (< hour 17))
+      (setq doom-theme 'doom-nord-light)
+    (setq doom-theme 'doom-one)))
+
+
+;; if you use `org' and don't want your org files in the default location below,q
 ;; change `org-directory'. It must be set before org loads!
 (setq org-directory "~/org/")
 
 ;; This determines the style of line numbers in effect. If set to `nil', line
 ;; numbers are disabled. For relative line numbers, set this to `relative'.
-(setq display-line-numbers-type 'relative)
+(setq display-line-numbers-type 't)
 
 
 ;; Here are some additional functions/macros that could help you configure Doom:
@@ -58,10 +65,10 @@
 ;; Add a mapping to insert a note when org noter is active and pdf-view is enabled
 ;; in a buffer.
 (map! (:when (featurep! :lang org +noter)
-        :map pdf-view-mode-map
-        :after org-noter
-        :desc "Insert a note in org noter"
-        :nvi "i" #'org-noter-insert-note))
+       :map pdf-view-mode-map
+       :after org-noter
+       :desc "Insert a note in org noter"
+       :nvi "i" #'org-noter-insert-note))
 
 ;; mappings for calc
 (map! :leader
@@ -85,3 +92,27 @@
 (after! flycheck
 ;; only check buffers with flycheck when the file is first opened or saved.
  (setq flycheck-check-syntax-automatically '(mode-enabled save)))
+
+;; preview buffers
+(setq +ivy-buffer-preview t)
+
+;; if the battery is available, show it
+(unless (string-match-p "^Battery status not available" (battery))
+  (display-battery-mode 1))
+
+;; display the time
+(setq display-time-24hr-format 1)
+(display-time-mode)
+(setq display-time-interval 15)
+
+;; customizations to be used on specific devices
+(let ((distro (with-temp-buffer
+  (insert-file-contents "/etc/issue")
+  (nth 0 (split-string (buffer-string) nil t))
+  )))
+  ;; Only apply if the distribution is Debian
+  (if (string-match-p "Debian" distro)
+      (progn
+       ;; change the default dictionary to english
+       (setq debian-ispell-dictionary "english")
+       (setq ispell-dictionary "english"))))
