@@ -75,3 +75,13 @@
 (after! ccls
   (setq ccls-initialization-options '(:index (:comments 0) :completion (:detailedLabel t)))
   (set-lsp-priority! 'ccls 2)) ; optional as ccls is the default in Doom
+
+;; haskell mode configuration
+(after! haskell-mode
+;; don't open new popup windows when showing haskell errors
+ (setq haskell-interactive-popup-errors nil))
+
+;;flycheck configuration
+(after! flycheck
+;; only check buffers with flycheck when the file is first opened or saved.
+ (setq flycheck-check-syntax-automatically '(mode-enabled save)))
