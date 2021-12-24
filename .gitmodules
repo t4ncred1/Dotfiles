@@ -13,3 +13,6 @@
 [submodule "vim/.vim/pack/study/start/vim-roadmap"]
 	path = vim/.vim/pack/study/start/vim-roadmap
 	url = ./vim/.vim/pack/study/start/vim-roadmap
+[submodule "doom/.emacs.d"]
+	path = doom/.emacs.d
+	url = https://github.com/hlissner/doom-emacs
