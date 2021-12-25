@@ -1,9 +1,12 @@
-(setq visible-bell nil
-      ring-bell-function 'double-flash-mode-line)
+(require 'org)
 
-(defun double-flash-mode-line ()
-  (let ((flash-sec (/ 1.0 20)))
-    (invert-face 'mode-line)
-    (run-with-timer flash-sec nil #'invert-face 'mode-line)
-    (run-with-timer (* 2 flash-sec) nil #'invert-face 'mode-line)
-    (run-with-timer (* 3 flash-sec) nil #'invert-face 'mode-line)))
+(defvar t4n/literate-org-file  (concat user-emacs-directory "config.org"))
+(defvar t4n/config-file (concat user-emacs-directory "config.el" ))
+
+(if (file-exists-p t4n/literate-org-file)
+    (progn				; tangle the literate file
+      (find-file t4n/literate-org-file)
+      (org-babel-tangle)))
+
+(load-file t4n/config-file)
+(byte-compile-file t4n/config-file) 	;load the config file

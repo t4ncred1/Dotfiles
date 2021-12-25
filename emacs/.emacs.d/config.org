@@ -1,0 +1,45 @@
+#+TITLE: t4ncred1's Emacs Literate Configuration
+#+AUTHOR: t4ncred1
+#+PROPERTY: header-args :tangle config.el :comments link
+
+* Introduction
+:PROPERTIES:
+:VISIBILITY: children
+:END:
+
+** About this file
+This is an Emacs /literate configuration/ file. 
+It contains code snippets that get tangled together to create a configuration file 
+The name of the configuration file is stored in the elisp variable =t4n/config-file=.
+
+** Personal information
+Let's set some variables with basic user informations.
+
+#+BEGIN_SRC emacs-lisp
+  (setq user-full-name "Tancredi Covioli"
+	user-mail-address "tancredi.covioli@gmail.com")
+#+END_SRC
+
+** Special thanks
+The following resources were of inspiration in the making of this file:
+- [[https://raw.githubusercontent.com/frap/emacs-literate/master/readme.org][Atea Emacs Literate Configuration]]
+
+* Emacs general configuration
+
+** Change the bell
+Let's change the way emacs notifies us that we made a mistake.
+
+By default, the whole screen flashes wenever we input an unassigned key combination or we abort a command through =C-g=. We can change this behavior by modifying the variable =visible-bell=.
+
+What we would like instead would be to have only the modeline flash a couple of times in a small time frame.
+
+#+BEGIN_SRC emacs-lisp
+  (setq visible-bell nil
+	ring-bell-function 'double-flash-mode-line)
+  (defun double-flash-mode-line ()
+    (let ((flash-sec (/ 1.0 20)))
+      (invert-face 'mode-line)
+      (run-with-timer flash-sec nil #'invert-face 'mode-line)
+      (run-with-timer (* 2 flash-sec) nil #'invert-face 'mode-line)
+      (run-with-timer (* 3 flash-sec) nil #'invert-face 'mode-line)))
+#+END_SRC
