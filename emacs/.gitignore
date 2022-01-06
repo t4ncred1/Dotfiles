@@ -4,3 +4,6 @@
 elpa/
 bookmarks
 config.el
+history
+custom.el
+.local/
