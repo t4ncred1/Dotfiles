@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+programname=$0
+
+function usage {
+    echo "usage: $programname [DIRECTORY] PATTERN"
+}
+
+case $# in
+    1)
+        PATTERN="$1"
+        DIRECTORY="."
+        ;;
+    2)
+        DIRECTORY="$1"
+        PATTERN="$2"
+        ;;
+    *)
+        echo Wrong number of parameters passed.
+        usage
+        exit 1
+esac
+
+
+find "$DIRECTORY" -iname '*.pdf' -exec sh -c "pdfgrep --color always -Hn \"$PATTERN\" \"\$1\"" shell {} \;
