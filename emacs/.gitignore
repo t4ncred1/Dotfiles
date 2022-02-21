@@ -7,3 +7,4 @@ config.el
 history
 custom.el
 .local/
+/emacs/.emacs.d/*.tex
