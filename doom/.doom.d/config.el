@@ -87,8 +87,8 @@
 (setq +ivy-buffer-preview t)
 
 ;; if the battery is available, show it
-(unless (string-match-p "^Battery status not available" (battery))
-  (display-battery-mode 1))
+;; (unless (string-match-p "^Battery status not available" (battery))
+;;   (display-battery-mode 1))
 
 ;; display the time
 (setq display-time-24hr-format 1)
