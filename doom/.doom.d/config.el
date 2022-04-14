@@ -106,3 +106,55 @@
        ;; change the default dictionary to english
        (setq debian-ispell-dictionary "english")
        (setq ispell-dictionary "english"))))
+(defconst t4n/bib-bib "~/Documenti/University/Magistrale/tesi/references.bib")
+(defconst t4n/bib-library "~/Documenti/University/Magistrale/tesi/libreria")
+(defconst t4n/bib-notes "~/Documenti/University/Magistrale/tesi/note")
+
+(setq bibtex-completion-bibliography t4n/bib-bib ; My bibliography PDF location
+      bibtex-completion-library-path t4n/bib-library ; My PDF lib location
+      bibtex-completion-notes-path t4n/bib-notes)
+
+(after! org-noter
+  (setq
+   org-noter-always-create-frame t
+   org-noter-notes-search-path (list t4n/bib-notes)
+   org-noter-hide-other t
+   org-noter-doc-split-fraction '(0.60 . 0.5)
+   )
+  (add-hook 'org-noter-doc-mode-hook 'pdf-view-fit-width-to-window)
+  )
+
+;; tools: biblio configuration
+(after! citar
+  (setq citar-bibliography (list t4n/bib-bib)
+        citar-library-paths (list t4n/bib-library)
+        citar-notes-paths (list t4n/bib-notes))
+  )
+
+(after! org-roam
+  (setq org-roam-v2-ack t
+        +org-roam-open-buffer-on-find-file nil
+        org-roam-completion-everywhere nil
+        org-roam-directory t4n/bib-notes))
+
+(use-package! org-roam-bibtex
+  :after org-roam
+  :config
+  (setq orb-preformat-keywords
+      '("citekey" "title" "url" "author-or-editor" "keywords" "file")
+      orb-process-file-keyword t
+      orb-attached-file-extensions '("pdf")
+      orb-roam-ref-format 'org-cite)
+  (setq org-roam-capture-templates
+        '(;; bibliography note template
+          ("r" "bibliography reference" plain "%?"
+           :if-new (file+head "${citekey}.org"
+                              "#+title: Notes on ${title}\n* ${title}\n :PROPERTIES:\n  :Custom_ID: ${citekey}\n  :URL: ${url}\n  :AUTHOR: ${author-or-editor}\n  :NOTER_DOCUMENT: %(orb-get-attached-file \"${citekey}\")\n  :NOTER_PAGE: \n  :END:\n\n")
+           :unnarrowed t)
+          ))
+  (require 'org-roam-bibtex)
+  (setq
+        citar-open-note-function 'orb-citar-edit-note
+        orb-preformat-keywords '("citekey" "title" "url" "author-or-editor" "keywords" "file")
+        orb-process-file-keyword t
+        orb-attached-file-extensions '("pdf")))
