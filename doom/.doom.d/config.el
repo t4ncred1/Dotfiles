@@ -107,6 +107,29 @@
        ;; change the default dictionary to english
        (setq debian-ispell-dictionary "english")
        (setq ispell-dictionary "english"))))
+
+;; Capture templates
+;;
+(setq org-capture-templates '(
+ ("t" "Personal todo" entry
+  (file+headline +org-capture-todo-file "Inbox")
+  "* TODO %?\n%i\n%a" :prepend t)
+ ("n" "Personal notes" entry
+  (file+headline +org-capture-notes-file "Inbox")
+  "* %u %?\n%i\n%a" :prepend t)
+
+ ("p" "Templates for projects")
+ ("pt" "Project-local todo" entry
+  (file +org-capture-project-todo-file)
+  "* TODO %?\n%i\n%a" :prepend t)
+ ("pn" "Project-local notes" entry
+  (file +org-capture-project-notes-file)
+  "* %U %?\n%i\n%a" :prepend nil)
+ ("o" "Centralized templates for projects")
+ ("ot" "Project todo" entry #'+org-capture-central-project-todo-file "* TODO %?\n %i\n %a" :heading "Tasks" :prepend nil)
+ ("on" "Project notes" entry #'+org-capture-central-project-notes-file "* %U %?\n %i\n %a" :heading "Notes" :prepend t)
+      ))
+
 (defconst t4n/bib-bib "~/Documenti/University/Magistrale/tesi/references.bib")
 (defconst t4n/bib-library "~/Documenti/University/Magistrale/tesi/libreria")
 (defconst t4n/bib-notes "~/Documenti/University/Magistrale/tesi/note")
