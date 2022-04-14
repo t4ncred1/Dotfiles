@@ -189,3 +189,8 @@
 ;; Disable persistent undo history
 (remove-hook 'undo-fu-mode-hook #'global-undo-fu-session-mode)
 
+;; when poetry is enabled, set a shortcut
+(map! :map python-mode-map
+      :when (featurep! :lang python +poetry)
+      :localleader
+      :desc "poetry" "p" #'poetry)
