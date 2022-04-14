@@ -92,6 +92,7 @@
 
 ;; display the time
 (setq display-time-24hr-format 1)
+(setq display-time-default-load-average nil)
 (display-time-mode)
 (setq display-time-interval 15)
 
@@ -158,3 +159,10 @@
         orb-preformat-keywords '("citekey" "title" "url" "author-or-editor" "keywords" "file")
         orb-process-file-keyword t
         orb-attached-file-extensions '("pdf")))
+
+;; reduce the size of the icons
+(setq all-the-icons-scale-factor 1.1)
+
+;; Disable persistent undo history
+(remove-hook 'undo-fu-mode-hook #'global-undo-fu-session-mode)
+
