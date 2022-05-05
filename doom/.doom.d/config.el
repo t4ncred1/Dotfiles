@@ -143,6 +143,7 @@
    org-noter-always-create-frame t
    org-noter-notes-search-path (list t4n/bib-notes)
    org-noter-hide-other t
+   org-noter-auto-save-last-location nil
    org-noter-doc-split-fraction '(0.60 . 0.5)
    )
   (add-hook 'org-noter-doc-mode-hook 'pdf-view-fit-width-to-window)
