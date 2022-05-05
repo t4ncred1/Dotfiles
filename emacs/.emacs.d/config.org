@@ -1,0 +1,517 @@
+#+TITLE: t4ncred1's Emacs Literate Configuration
+#+AUTHOR: t4ncred1
+#+PROPERTY: header-args :tangle config.el :comments link :results output silent
+#+STARTUP: indent
+
+* Introduction
+:PROPERTIES:
+:VISIBILITY: children
+:END:
+
+** About this file
+This is an Emacs /literate configuration/ file.  It contains code
+snippets that get tangled together to create a configuration file The
+name of the configuration file is stored in the elisp variable
+=t4n/config-file=.
+
+** Personal information
+Let's set some variables with basic user informations.
+
+#+begin_src emacs-lisp
+  (setq user-full-name "Tancredi Covioli"
+	user-mail-address "tancredi.covioli@gmail.com")
+#+end_src
+
+** Special thanks
+The following resources were of inspiration in the making of this
+configuration:
+- [[https://raw.githubusercontent.com/frap/emacs-literate/master/readme.org][Atea Emacs Literate Configuration]]
+
+* Emacs general configuration
+In this section we gathered all the customizations that do not require
+an additional package to work.
+
+** Separate file for Customize
+By default, the =customize= interface writes its modifications to
+=~/.emacs.d/init.el=.  What we would prefer instead is to write these
+modifications on an ad-hoc file.
+
+#+begin_src emacs-lisp
+  (setq custom-file (expand-file-name "custom.el" user-emacs-directory))
+  (if (file-exists-p custom-file)
+      (load custom-file))
+#+end_src
+
+** Change the bell
+Let's change the way emacs notifies us that we made a mistake.
+
+By default, the whole screen flashes wenever we input an unassigned
+key combination or we abort a command through =C-g=. We can change
+this behavior by modifying the variable =visible-bell=.
+
+What we would like instead would be to have only the modeline flash a
+couple of times in a small time frame.
+
+#+begin_src emacs-lisp
+  (setq visible-bell nil
+	ring-bell-function 'double-flash-mode-line)
+  (defun double-flash-mode-line ()
+    (let ((flash-sec (/ 1.0 20)))
+      (invert-face 'mode-line)
+      (run-with-timer flash-sec nil #'invert-face 'mode-line)
+      (run-with-timer (* 2 flash-sec) nil #'invert-face 'mode-line)
+      (run-with-timer (* 3 flash-sec) nil #'invert-face 'mode-line)))
+#+end_src
+
+** Org
+I was battled between giving this section a top level heading or place
+it between the /Emacs general configurations/ (since it is shipped
+with emacs by default...). In the end, I opted for the latter choice.
+
+*** Variables
+Before any configuration can be applied, we need to set up some
+variables.
+
+**** Indentation
+By default, org opens a file and shows all the headers and the
+contents aligned to the left.  This saves space, but is visually
+unactractive.
+
+Instead, I like to set up an indentation for the body of each header
+and to indent sub-headers.
+
+#+begin_src emacs-lisp
+  (setq org-startup-indented t)
+#+end_src
+
+**** Org directory
+The default org directory should be =~/org=. I generally like this
+choice, but still want to put it explicitly (in case some changes are
+made in the future).
+
+#+begin_src emacs-lisp
+  (setq org-directory "~/org")
+#+end_src
+
+*** Indentation
+By default, the text is not aligned with the header it belongs to.
+Although I don't despise this solution (the amount of space saved can
+be quite important), the indentation is more soothing to the eye and
+can be easily removed with the command =org-indent-mode=.
+
+#+begin_src emacs-lisp
+  (setq org-startup-indented t)
+#+end_src
+
+*** Store link                                                    :keybind:
+Set a keybind to store a link. This feature is useful because it lets
+you put in an org document a link to basically anything open in emacs.
+#+begin_src emacs-lisp
+  (global-set-key (kbd "C-c l") #'org-store-link)
+#+end_src
+
+*** Capture                                                       :keybind:
+To set up capture, we first need to choose where to save the captured
+notes.
+
+#+begin_src elisp
+  (setq org-default-notes-file (concat org-directory "/notes.org"))
+  (setq org-todos-file (concat org-directory "/todo.org"))
+  (setq org-notes-file org-default-notes-file)
+#+end_src
+
+And we also need to set up a keybinding to call capture (since doing =M-x
+org-capture= everytime looks tedious).
+
+#+begin_src emacs-lisp
+  (global-set-key (kbd "C-c c") #'org-capture)
+#+end_src
+
+**** TODO Templates
+The capture templates define how and where a note will be added to the
+capture file.
+
+***** Preamble and configuraittion
+A common piece of information put in capture templates is a link to
+the file you are currently visiting. I like this concept in most
+circumstances, but sometimes the ideas passing by my mind have nothing
+to do with what I'm doing in that moment (oot: should I get checked
+for ADHD? This seems to happen far too often..)
+
+There two possible course of action to take in this case:
+1. add a copy of each template that might want to have a link to the
+   current file
+2. prompt, on template creation, wether to insert a link to the
+   current file or not
+
+The first one is easier, but the second seems interesting.
+
+Since the default behavior for =y-or-n-p= is to quit when pressing
+=RET= (and I'd really like to quickly press =RET= whenever I want to
+capture an idea without having to go for =y=) let's define a new
+keymap to use in place of =y-or-n-p-map=.
+
+#+begin_src emacs-lisp
+  (defconst y-or-n-p-ret-no-map
+    (let ((map (make-sparse-keymap)))
+      (set-keymap-parent map y-or-n-p-map)
+      (define-key map [return] 'skip)
+      map)
+    "A keymap for y-or-n-p with RET meaning \"no\".")
+
+  (defconst y-or-n-p-ret-yes-map
+    (let ((map (make-sparse-keymap)))
+      (set-keymap-parent map y-or-n-p-map)
+      (define-key map [return] 'skip)
+      map)
+    "A keymap for y-or-n-p with RET meaning \"yes\".")
+#+end_src
+
+We can now define a function that decides wether to return a link
+based on the response of the user.
+
+#+begin_src emacs-lisp
+  (defun t4n/ask-link (link &optional retyes)
+    "Prompts the user and returns LINK if positive.
+
+  With RETYES set, if the user responds with RET, treats it as a `yes';
+  Otherwise, treat it as a `no'."
+    (let ((y-or-n-p-map
+           (if (equal retyes nil)
+               y-or-n-p-ret-yes-map
+             y-or-n-p-ret-no-map)))
+      (if (y-or-n-p "Link current buffer? ")
+        (concat "Where: " link)
+      "")))
+#+end_src
+
+***** Personal Todo template
+The first template I'd like to define is a simple Todo template.
+
+#+begin_src emacs-lisp :tangle no :noweb-ref templates
+  ("t" "Personal todo" entry
+   (file+headline org-default-notes-file "Inbox")
+   "* TODO %?\n%(t4n/ask-link \"%a\")\n%i\n" :prepend t)
+#+end_src
+
+***** TODO Notes template
+#+begin_src emacs-lisp :tangle no :noweb-ref templates
+  ("n" "Personal note" entry
+   (file+headline org-default-notes-file "Inbox")
+   "* TODO %?\n%(t4n/ask-link \"%a\")\n%i\n" :prepend t)
+#+end_src
+
+***** Summing up                                               :noexport:
+And here they are, all the templates put together.
+#+begin_src emacs-lisp :noweb yes
+  (setq org-capture-templates '(
+                                <<templates>>
+                                ))
+#+end_src
+
+* Package Management  
+In this section the set up process for package management is
+described.
+
+To install and configure packages we will use =use-package=, which
+(when correctly set up) will speed up the initialization process.
+
+** Package Settings
+We're going to set the =load-path= ourselves and avoid calling
+=(package-initilize)= (for performance reasons) so we need to set
+=package--init-file-ensured= to true to tell =package.el= to not
+automatically call it on our behalf. Additionally, we're setting
+=package-enable-at-startup= to nil so that packages will not
+automatically be loaded for us since =use-package= will be handling
+that.
+
+#+begin_src emacs-lisp
+  (eval-and-compile
+    (setq load-prefer-newer t
+          package-user-dir "~/.emacs.d/elpa"
+          package--init-file-ensured t
+          package-enable-at-startup nil)
+
+    (unless (file-directory-p package-user-dir)
+      (make-directory package-user-dir t)))
+#+end_src
+
+** Manually Set Load Path
+We're going to set the load path ourselves so that we don't have to
+call =package-initialize= at runtime and incur a large performance
+hit. This load-path will actually be faster than the one created by
+=package-initialize= because it appends the elpa packages to the end
+of the load path. Otherwise, any time a builtin package was required,
+it would have to search all of third party paths first.
+
+#+begin_src emacs-lisp
+  (eval-and-compile
+    (setq load-path (append load-path (directory-files package-user-dir t "^[^.]" t))))
+#+end_src
+
+** Initialise Package Management
+Next we are going to require =package.el= and add our additional
+package archives, 'melpa' and 'org'.  Afterwards, we need to
+initialize our packages and then ensure that =use-package= is
+installed, which we promptly install if it's missing. Finally we load
+=use-package= and tell it to always install any missing packages.
+
+Note that this entire block is wrapped in =eval-when-compile=. The
+effect of this is to perform all of the package initialization during
+compilation so that when byte compiled, all of this time consuming
+code is skipped. This can be done because the result of byte compiling
+=use-package= statements results in the macro being fully expanded at
+which point =use-package= isn't actually required any longer.
+
+Since the code is automatically compiled during runtime, if the
+configuration hasn't already been previously compiled manually then
+all of the package initialization will still take place at startup.
+
+#+begin_src emacs-lisp
+  (eval-when-compile
+    (require 'package)
+
+    (unless (assoc-default "melpa" package-archives)
+      (add-to-list 'package-archives '("melpa" . "http://melpa.org/packages/") t))
+    (unless (assoc-default "org" package-archives)
+      (add-to-list 'package-archives '("org" . "http://orgmode.org/elpa/") t))
+    (unless (package-installed-p 'use-package)
+      (package-refresh-contents)
+      (package-install 'use-package))
+    (unless (package-installed-p 'bind-key)
+      (package-refresh-contents)
+      (package-install 'bind-key))
+    (require 'use-package)
+    (require 'bind-key)
+    (setq use-package-always-ensure t))
+#+end_src
+
+** Set up Use-Package
+Tell =use-package= to always defer loading packages unless explicitly
+told otherwise. This speeds up initialization significantly as many
+packages are only loaded later when they are explicitly used.
+
+#+begin_src emacs-lisp
+  (setq use-package-always-defer t
+        use-package-verbose t)
+#+end_src
+
+* Windows management                                                :keybind:
+The only available command to switch between windows is
+=other-window=. While great for two windows, it loses its value when
+there are multiple windows.  Introduce [[https://github.com/abo-abo/ace-window][ace-window]]: an emacs package to
+move and operate on windows faster.
+
+With two or less windows active, the behavior is the same as
+=other-window=.
+We could then substitute its keybinding (=C-x o=) with
+the new alternative, but a keybinding that requires less strain on the
+fingers for an action (windows-switching) performed so often was in
+order anyway.
+
+#+begin_src emacs-lisp
+  (use-package ace-window
+    :bind ("M-o" . ace-window))
+#+end_src
+
+* Minibuffer Completion
+The completion system of emacs is good by itself, but there are some
+quirks that custom completion systems can give that are hard to pass
+on.
+
+** Vertico
+My completion system of choice is [[https://github.com/minad/vertico][vertico]]. It can group the completion
+entries and is well supported by =embark= (which I intend to get in my
+workflow later on).
+
+The =vertico-cycle= switch toggles cycling of the results.
+
+#+begin_src emacs-lisp
+  (use-package vertico
+    :init (vertico-mode)
+    :config (setq vertico-cycle t))
+#+end_src
+
+** Annotations
+Some useful information on the fringe of your completion entries (like
+eventual keybindings and whatnot) can be added by the package [[https://github.com/minad/marginalia][marginalia]].
+
+#+begin_src emacs-lisp
+  (use-package marginalia
+    :init (marginalia-mode))
+#+end_src
+
+** Orderless
+The usual completion style for emacs is (basically) to search for the
+exact regex you have written.
+
+This behavior is suitable for someone with some years of emacs
+use under his belt, that knows his commands inside-out and can name
+them in his sleep.  Trust me, I'm not that guy[fn:1].
+
+For this reason, I opted for the completion style offered by
+[[https://github.com/oantolin/orderless][orderless]], which basically lets me scramble and truncate the worlds
+as I please and is still able (most of the times) to give me the
+command I was looking for.
+
+The /matching styles/ chosen make so that we can select the candidate through:
+- literal correspondence
+- regexp correspondence
+- initial correspondence
+
+For example, a pattern like =oic src= in =execute-extended-command=
+(=M-x=) is matched by the command =org-edit-inline-src-code=
+
+#+begin_src emacs-lisp
+  (use-package orderless
+    :ensure t
+    :config (setq completion-styles '(orderless)
+		  orderless-matching-styles '(orderless-literal orderless-regexp orderless-initialism)))
+#+end_src
+
+** TODO Consult                                                    :keybind:
+While the packages we have seen are nice alternatives to the default
+completion UI of emacs, [[https://github.com/minad/consult][consult]] offers many /really/ useful completion
+commands.
+
+#+begin_src emacs-lisp :results output silent
+  (use-package consult
+    ;; Replace bindings. Lazily loaded due by `use-package'.
+    :bind (;; C-c bindings (mode-specific-map)
+           ("C-c h" . consult-history)
+           ("C-c m" . consult-mode-command)
+           ("C-c b" . consult-bookmark)
+           ("C-c k" . consult-kmacro)
+           ;; C-x bindings (ctl-x-map)
+           ("C-x M-:" . consult-complex-command)     ;; orig. repeat-complex-command
+           ("C-x b" . consult-buffer)                ;; orig. switch-to-buffer
+           ("C-x 4 b" . consult-buffer-other-window) ;; orig. switch-to-buffer-other-window
+           ("C-x 5 b" . consult-buffer-other-frame)  ;; orig. switch-to-buffer-other-frame
+
+           ;; Custom M-# bindings for fast register access
+           ("M-#" . consult-register-load)
+           ("M-'" . consult-register-store)          ;; orig. abbrev-prefix-mark (unrelated)
+           ("C-M-#" . consult-register)
+
+           ;; Other custom bindings
+           ("M-y" . consult-yank-pop)                ;; orig. yank-pop
+           ("<help> a" . consult-apropos)            ;; orig. apropos-command
+
+           ;; M-g bindings (goto-map)
+           ("M-g e" . consult-compile-error)
+           ("M-g f" . consult-flymake)               ;; Alternative: consult-flycheck
+           ("M-g g" . consult-goto-line)             ;; orig. goto-line
+           ("M-g M-g" . consult-goto-line)           ;; orig. goto-line
+           ("M-g o" . t4n/consult-outline)           ;; consult-org-heading or consult-outline
+
+           ("M-g m" . consult-mark)
+           ("M-g k" . consult-global-mark)
+           ("M-g i" . consult-imenu)
+           ("M-g I" . consult-imenu-multi)
+
+           ;; M-s bindings (search-map)
+           ("M-s f" . consult-find)
+           ("M-s F" . consult-locate)
+           ("M-s g" . consult-grep)
+           ("M-s G" . consult-git-grep)
+           ("M-s r" . consult-ripgrep)
+           ("M-s l" . consult-line)
+           ("M-s L" . consult-line-multi)
+           ("M-s m" . consult-multi-occur)
+           ("M-s k" . consult-keep-lines)
+           ("M-s u" . consult-focus-lines)
+
+           ;; Isearch integration
+           ("M-s e" . consult-isearch-history)
+           :map isearch-mode-map
+           ("M-e" . consult-isearch-history)         ;; orig. isearbch-edit-string
+           ("M-s e" . consult-isearch-history)       ;; orig. isearch-edit-string
+           ("M-s l" . consult-line)                  ;; needed by consult-line to detect isearch
+           ("M-s L" . consult-line-multi))           ;; needed by consult-line to detect isearch
+
+    ;; Enable automatic preview at point in the *Completions* buffer. This is
+    ;; relevant when you use the default completion UI. You may want to also
+    ;; enable `consult-preview-at-point-mode` in Embark Collect buffers.
+    :hook (completion-list-mode . consult-preview-at-point-mode)
+
+    :init
+
+    ;; Optionally configure the register formatting. This improves the register
+    ;; preview for `consult-register', `consult-register-load',
+    ;; `consult-register-store' and the Emacs built-ins.
+    (setq register-preview-delay 0
+          register-preview-function #'consult-register-format)
+
+    ;; Optionally tweak the register preview window.
+    ;; This adds thin lines, sorting and hides the mode line of the window.
+    (advice-add #'register-preview :override #'consult-register-window)
+
+    ;; Optionally replace `completing-read-multiple' with an enhanced version.
+    (advice-add #'completing-read-multiple :override #'consult-completing-read-multiple)
+
+    ;; Use Consult to select xref locations with preview
+    (setq xref-show-xrefs-function #'consult-xref
+          xref-show-definitions-function #'consult-xref)
+
+    ;; Configure other variables and modes in the :config section,
+    ;; after lazily loading the package.
+    :config
+    (defun t4n/consult-outline ()
+      "Override `consult-outline' with `consult-org-heading' 
+  when in org buffers" 
+      (interactive)
+      (if (derived-mode-p 'org-mode)
+          (call-interactively 'consult-org-heading)
+        (call-interactively 'consult-outline)))
+    ;; Optionally configure preview. The default value
+    ;; is 'any, such that any key triggers the preview.
+    ;; (setq consult-preview-key 'any)
+    ;; (setq consult-preview-key (kbd "M-."))
+    ;; (setq consult-preview-key (list (kbd "<S-down>") (kbd "<S-up>")))
+    ;; For some commands and buffer sources it is useful to configure the
+    ;; :preview-key on a per-command basis using the `consult-customize' macro.
+    ;; (consult-customize
+    ;;  consult-theme
+    ;;  :preview-key '(:debounce 0.2 any)
+    ;;  consult-ripgrep consult-git-grep consult-grep
+    ;;  consult-bookmark consult-recent-file consult--source-recent-file consult--source-project-recent-file consult--source-bookmark
+    ;;  :preview-key (kbd "M-."))
+
+    ;; Optionally configure the narrowing key.
+    ;; Both < and C-+ work reasonably well.
+    (setq consult-narrow-key "<") ;; (kbd "C-+")
+
+    ;; Optionally make narrowing help available in the minibuffer.
+    ;; You may want to use `embark-prefix-help-command' or which-key instead.
+    ;;(define-key consult-narrow-map (vconcat consult-narrow-key "?") #'consult-narrow-help)
+
+    ;; Optionally configure a function which returns the project root directory.
+    ;; There are multiple reasonable alternatives to chose from.
+    ;;;; 1. project.el (project-roots)
+    (setq consult-project-root-function
+          (lambda ()
+            (if (fboundp 'project-roots)
+              (when-let (project (project-current))
+                (car (project-roots project))))))
+    ;;;; 2. projectile.el (projectile-project-root)
+    ;; (autoload 'projectile-project-root "projectile")
+    ;; (setq consult-project-root-function #'projectile-project-root)
+    ;;;; 3. vc.el (vc-root-dir)
+    ;; (setq consult-project-root-function #'vc-root-dir)
+    ;;;; 4. locate-dominating-file
+    ;; (setq consult-project-root-function (lambda () (locate-dominating-file "." ".git")))
+  )
+#+end_src
+
+* Help with keybindings
+Being a newbie in the emacs world can be tough with the overwhelming amount of keybindings available.
+For this reason the package [[https://github.com/justbur/emacs-which-key][which-key]] is here installed.
+
+#+begin_src emacs-lisp
+  (use-package which-key
+    :init (which-key-mode))
+#+end_src
+
+* Footnotes 
+
+[fn:1] [[https://www.youtube.com/watch?v=yD1W0yKtRus][semicit]].
