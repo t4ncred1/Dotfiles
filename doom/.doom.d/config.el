@@ -3,11 +3,28 @@
 ;; Place your private configuration here! Remember, you do not need to run 'doom
 ;; sync' after modifying this file!
 
-
-;; Some functionality uses this to identify you, e.g. GPG configuration, email
-;; clients, file templates and snippets. It is optional.
+;; Load the local configuration of this device.
+;;
+;; The local configuration should configure the following variables:
+;; - user-full-name
+;; - user-mail-address
+;; - org-directory
+;; - org-roam-directory
+;; Optionally, if used:
+;; - t4n/bib-bib
+;; - t4n/bib-library
+;; - t4n/bib-notes
+;; Defaults for the configuration to be loaded
 (setq user-full-name "Tancredi Covioli"
-      user-mail-address "tancredi.covioli@gmail.com")
+      user-mail-address "tancredi.covioli@gmail.com"
+      org-directory "~/org"
+      org-roam-directory "~/org/roam"
+)
+(setq t4n/bib-bib "~/documenti/university/magistrale/tesi/references.bib"
+      t4n/bib-library "~/documenti/university/magistrale/tesi/libreria"
+      t4n/bib-notes "~/documenti/university/magistrale/tesi/note")
+
+(load! "./local_config.el" nil t)
 
 ;; Doom exposes five (optional) variables for controlling fonts in Doom:
 ;;
@@ -43,11 +60,6 @@
 ;; This determines the style of line numbers in effect. If set to `nil', line
 ;; numbers are disabled. For relative line numbers, set this to `relative'.
 (setq display-line-numbers-type t)
-
-;; If you use `org' and don't want your org files in the default location below,
-;; change `org-directory'. It must be set before org loads!
-(setq org-directory "~/Workspace/org")
-
 
 ;; Whenever you reconfigure a package, make sure to wrap your config in an
 ;; `after!' block, otherwise Doom's defaults may override your settings. E.g.
@@ -90,6 +102,11 @@
        :desc "Insert a note in org noter"
        :nvi "i" #'org-noter-insert-note))
 
+(map! :map dired-mode-map
+      :desc "iSearch forward for filename"
+      :localleader "/" #'dired-isearch-filenames
+)
+
 ;;
 ;; Capture templates
 ;;
@@ -129,7 +146,7 @@
 
 ;; when poetry is enabled, set a shortcut
 (map! :map python-mode-map
-      :when (featurep! :lang python +poetry)
+      :when (modulep! :lang python +poetry)
       :localleader
       :desc "poetry" "p" #'poetry)
 
@@ -137,9 +154,6 @@
 ;; Uni stuff, now obsolete but still viable
 ;;
 
-(defconst t4n/bib-bib "~/documenti/university/magistrale/tesi/references.bib")
-(defconst t4n/bib-library "~/documenti/university/magistrale/tesi/libreria")
-(defconst t4n/bib-notes "~/documenti/university/magistrale/tesi/note")
 
 (setq bibtex-completion-bibliography t4n/bib-bib ; my bibliography pdf location
       bibtex-completion-library-path t4n/bib-library ; my pdf lib location
@@ -168,6 +182,31 @@
 ;;         +org-roam-open-buffer-on-find-file nil
 ;;         org-roam-completion-everywhere nil
 ;;         org-roam-directory t4n/bib-notes))
+(after! org-roam
+  (setq org-roam-capture-templates
+        '(;; Default templates
+          ("d" "default"
+           plain "%?"
+           :if-new (file+head "%<%Y%m%d%H%M%S>-${slug}.org" "#+title: ${title}\n")
+           :unnarrowed t)
+          ;; Office-related templates
+          ("o" "Office keymaps" )
+          ;; Template for meeting notes
+          ("om" "Meeting notes" entry
+           "* %<%Y-%m-%d> Meeting notes - ${title}\n%?"
+           :if-new (file+head
+                    "office/meetings/%<%Y%m%d%H%M%S>_meeting_${slug}.org"
+                    "#+title: Meeting notes - ${title}\n#+date: %T"
+                    )
+           :unnarrowed t)
+          ("on" "Concept Notes" entry
+           "* ${title}\n%?"
+           :if-new (file+head
+                    "office/notes/%<%Y%m%d%H%M%S>_note_${slug}.org"
+                    "#+title: Concept Note - ${title}\n#+date: %T"
+                    )
+           :unnarrowed t)
+          )))
 
 ;; (use-package! org-roam-bibtex :after org-roam
 ;;   :config
