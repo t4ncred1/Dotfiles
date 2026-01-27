@@ -35,7 +35,7 @@ alias baseline="blade gw baseline"
 alias sfc="ant format-source-current-branch;"
 alias sfl="ant format-source-local-changes;"
 
-if ! command -v notify > /dev/null 2>&1; then
+if command -v notify > /dev/null 2>&1; then
     alias deploy="blade gw deploy; notify 'Deploy' 'Deploy completed!'"
     alias deploya="blade gw deploy -a -Pnodejs.node.env=development; notify 'Deploy' 'Deploy completed!'"
     alias sf="blade gw formatSource; notify 'Source Formatter' 'Completed!'"
@@ -43,6 +43,6 @@ if ! command -v notify > /dev/null 2>&1; then
     alias build-service="blade gw buildService; notify 'BuildService' 'Completed!'"
     alias build-language="blade gw buildLang; notify 'BuildLanguage' 'Completed!'"
     alias rebuild="ant setup-sdk; ant setup-profile-dxp; ij; ant all; ij; notify 'Ant all' 'Build completed!'"
-    alias rebuild-full="git clean -dfx -e \"build.$(whoami).properties\"; ant setup-sdk; ant setup-profile-dxp; ij; ant all; ij; notify 'Ant all' 'Build completed!'"
+    alias rebuild-full="git clean -dfx -e \"build.$(whoami).properties\" -e \"app.server.$(whoami).properties\"; ant setup-sdk; ant setup-profile-dxp; ij; ant all; ij; notify 'Ant all' 'Build completed!'"
 fi
 
