@@ -1,0 +1,29 @@
+#!/bin/bash
+
+#
+# 99-noint-t4ncred1
+#
+
+
+# Environment variables
+
+## Java
+if ! [[ -z $JAVA_HOME ]] 2> /dev/null && ! [[ "$PATH" =~ ":$JAVA_HOME/bin" ]]; then
+    export PATH="$PATH:$JAVA_HOME/bin"
+fi
+export PATH
+
+## Ant
+if ! [[ -z $ANT_HOME ]] 2> /dev/null && ! [[ $PATH =~ :$ANT_HOME/bin ]]; then
+    PATH="$PATH:$ANT_HOME/bin"
+fi
+export PATH
+
+## Generics
+export EDITOR=/usr/bin/vim
+export PAGER=/usr/bin/less
+
+# Functions
+gradlew() {
+    $(git rev-parse --show-toplevel)/gradlew "$@"
+}
