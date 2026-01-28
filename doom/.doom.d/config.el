@@ -26,6 +26,10 @@
 
 (load! "./local_config.el" nil t)
 
+;; Set BASH_ENV to source non-interactive files
+;; Useful to set up commands and non interactive shells
+(setenv "BASH_ENV" (expand-file-name "./scripts/source-non-interactive" doom-user-dir))
+
 ;; Doom exposes five (optional) variables for controlling fonts in Doom:
 ;;
 ;; - `doom-font' -- the primary font to use

@@ -1,0 +1,5 @@
+#!/bin/bash
+
+if [[ -f ~/.bashrc.d/01-non-interactive ]] then
+    source ~/.bashrc.d/01-non-interactive
+fi
