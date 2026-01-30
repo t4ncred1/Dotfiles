@@ -1,10 +1,8 @@
 #!/bin/bash
 
-echo "sourcing non interactive files"
 if [ -d ~/.bashrc.d/non-interactive.d ]; then
     for rc in ~/.bashrc.d/non-interactive.d/*; do
         if [ -f "$rc" ]; then
-            echo "- sourcing file $rc";
             . "$rc"
         fi
     done
