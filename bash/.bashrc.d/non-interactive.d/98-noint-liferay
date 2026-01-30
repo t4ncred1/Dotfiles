@@ -80,7 +80,15 @@ start() {
     if [[ -n "$LIFERAY_HOME" ]]; then
         local tomcat_log="$LIFERAY_HOME/tomcat-10.1.48/logs/catalina.out"
         rm -rf "$tomcat_log"
-        "$LIFERAY_HOME/tomcat-10.1.48/bin/catalina.sh" glowroot jpda start && logs
+        "$LIFERAY_HOME/tomcat-10.1.48/bin/catalina.sh" glowroot jpda start && if [[ -n "$PAGER" ]]; then $PAGER "$tomcat_log"; fi
+    else
+        _notify_task "Start failed" "You need to populate the env variable LIFERAY_HOME"
+    fi
+}
+
+stop() {
+    if [[ -n "$LIFERAY_HOME" ]]; then
+        "$LIFERAY_HOME/tomcat-10.1.48/bin/catalina.sh" stop
     else
         _notify_task "Start failed" "You need to populate the env variable LIFERAY_HOME"
     fi
