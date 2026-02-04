@@ -36,6 +36,30 @@ sf() {
     _notify_task "Source Formatter" "Completed!"
 }
 
+sfc() {
+    if [[ -n "$LIFERAY_PRJ" ]]; then
+        (
+            cd "$LIFERAY_PRJ/portal-impl";
+            ant format-source-current-branch;
+        )
+        _notify_task "Ant format-source-current-branch" "Build completed!"
+    else
+        _notify_task "Ant format-source-current-branch Failed" "You need to populate the env variable LIFERAY_PRJ"
+    fi
+}
+
+sfl() {
+    if [[ -n "$LIFERAY_PRJ" ]]; then
+        (
+            cd "$LIFERAY_PRJ/portal-impl";
+            ant format-source-local-changes;
+        )
+        _notify_task "Ant format-source-local-changes" "Build completed!"
+    else
+        _notify_task "Ant format-source-local-changes Failed" "You need to populate the env variable LIFERAY_PRJ"
+    fi
+}
+
 build-rest() {
     blade gw buildRest "$@"
     _notify_task "BuildRest" "Completed!"
