@@ -20,20 +20,111 @@ _notify_task() {
 ## Java/blade building commands
 baseline() {
     blade gw baseline "$@"
+
+    local build_exit_code=$?
+    if [ $build_exit_code -ne 0 ]; then
+        _notify_task "Baseline" "Failed."
+    else
+        _notify_task "Baseline" "Completed!"
+    fi
+
+    return $build_exit_code
+}
+
+clearTomcat() {
+    if [[ -z "$LIFERAY_HOME" ]]; then
+        _notify_task "Clear tomcat failed" "You need to populate the env variable LIFERAY_HOME"
+        return 1;
+    fi
+
+    local folders_to_empty=(
+        "osgi/state"
+        "tomcat/work"
+        "tomcat/temp"
+    )
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dir)
+                if [[ -n "$2" && "$2" != --* ]]; then
+                    paths_to_clean+=("$2")
+                    shift 2 # Sposta la coda degli argomenti di due posizioni
+                else
+                    echo "Error: --dir requires a value."
+                    return 1
+                fi
+                ;;
+            *)
+                echo "Unknows parameter: $1"
+                shift
+                ;;
+        esac
+    done
+
+    for folder in "${folders_to_empty[@]}"; do
+        local full_path="${LIFERAY_HOME}/${folder}"
+
+        if [ -d "$full_path" ]; then
+            if [ "$(ls -A "$full_path" 2>/dev/null)" ]; then
+                rm -rf "$full_path"/*
+            else
+                echo "Directory $full_path is empty already."
+            fi
+        else
+            echo "Directory $full_path does not exist. Skipping."
+        fi
+    done
+}
+
+
+clearTomcatFull() {
+    clearTomcat --dir "data"
 }
 
 deploy() {
     blade gw deploy "$@";
-    _notify_task "Deploy" "Deploy completed!"
+
+    local build_exit_code=$?
+    if [ $build_exit_code -ne 0 ]; then
+        _notify_task "Deploy" "Failed."
+    else
+        _notify_task "Deploy" "Completed!"
+    fi
+
+    return $build_exit_code
 }
 
 deploya() {
    deploy -a -Pnodejs.node.env=development "$@";
 }
 
+dropdb() {
+    if [[ -n "$1" ]]; then
+        sudo -u postgres psql -c "drop database $1;"
+    else
+        sudo -u postgres psql -c 'drop database lportal;'
+    fi
+}
+
+recreatedb() {
+    if [[ -n "$1" ]]; then
+        sudo -u postgres psql -c "drop database $1;" -c " create database $1 owner sa;"
+    else
+        sudo -u postgres psql -c 'drop database lportal;' -c 'create database lportal owner sa;'
+    fi
+}
+
 sf() {
     blade gw formatSource "$@"
-    _notify_task "Source Formatter" "Completed!"
+
+    local build_exit_code=$?
+    if [ $build_exit_code -ne 0 ]; then
+        _notify_task "FormatSource" "Failed."
+    else
+        _notify_task "FormatSource" "Completed!"
+    fi
+
+    return $build_exit_code
 }
 
 sfc() {
@@ -42,9 +133,19 @@ sfc() {
             cd "$LIFERAY_PRJ/portal-impl";
             ant format-source-current-branch;
         )
-        _notify_task "Ant format-source-current-branch" "Build completed!"
+
+        local ant_exit_code=$?
+
+        if [ $ant_exit_code -ne 0 ]; then
+            _notify_task "Ant format-source-current-branch" "Build failed."
+        else
+            _notify_task "Ant format-source-current-branch" "Build completed!"
+        fi
+
+        return $ant_exit_code
     else
         _notify_task "Ant format-source-current-branch Failed" "You need to populate the env variable LIFERAY_PRJ"
+        return 1
     fi
 }
 
@@ -54,66 +155,135 @@ sfl() {
             cd "$LIFERAY_PRJ/portal-impl";
             ant format-source-local-changes;
         )
-        _notify_task "Ant format-source-local-changes" "Build completed!"
+
+        local ant_exit_code=$?
+
+        if [ $ant_exit_code -ne 0 ]; then
+            _notify_task "Ant format-source-local-changes" "Build failed."
+        else
+            _notify_task "Ant format-source-local-changes" "Build completed!"
+        fi
+
+        return $ant_exit_code
     else
         _notify_task "Ant format-source-local-changes Failed" "You need to populate the env variable LIFERAY_PRJ"
+        return 1
     fi
 }
 
 build-rest() {
     blade gw buildRest "$@"
-    _notify_task "BuildRest" "Completed!"
+
+    local build_exit_code=$?
+    if [ $build_exit_code -ne 0 ]; then
+        _notify_task "BuildRest" "Failed."
+    else
+        _notify_task "BuildRest" "Completed!"
+    fi
+
+    return $build_exit_code
 }
+
 build-service() {
     blade gw buildService "$@"
-    _notify_task "BuildService" "Completed!"
+
+    local build_exit_code=$?
+    if [ $build_exit_code -ne 0 ]; then
+        _notify_task "BuildService" "Failed."
+    else
+        _notify_task "BuildService" "Completed!"
+    fi
+
+    return $build_exit_code
 }
 
 build-language() {
     blade gw buildLang "$@"
-    _notify_task "BuildLanguage" "Completed!"
+
+    local build_exit_code=$?
+    if [ $build_exit_code -ne 0 ]; then
+        _notify_task "BuildLanguage" "Failed."
+    else
+        _notify_task "BuildLanguage" "Completed!"
+    fi
+
+    return $build_exit_code
 }
 
 rebuild() {
+    local status=0
     if [[ -n "$LIFERAY_PRJ" ]]; then
         (
             cd $LIFERAY_PRJ;
             ant setup-sdk && ant setup-profile-dxp && ij && ant all && ij
         )
-        _notify_task "Ant all" "Build completed!"
+
+        local ant_exit_code=$?
+
+        if [ $ant_exit_code -ne 0 ]; then
+            _notify_task "Ant all" "Build failed."
+        else
+            _notify_task "Ant all" "Build completed!"
+        fi
+
+        return $ant_exit_code
     else
         _notify_task "Ant all Failed" "You need to populate the env variable LIFERAY_PRJ"
+        return 1
     fi
 }
 
 rebuild-full() {
     if [[ -n "$LIFERAY_PRJ" ]]; then
         (
-            cd $LIFERAY_PRJ;
-            git clean -dfx -e "build.$(whoami).properties" -e "app.server.$(whoami).properties"
+            cd $LIFERAY_PRJ &&
+            git clean -dfx -e "build.$(whoami).properties" -e "app.server.$(whoami).properties" &&
             ant setup-sdk && ant setup-profile-dxp && ij && ant all && ij
         )
-        _notify_task "Ant all" "Build completed!"
+
+        local ant_exit_code=$?
+
+        if [ $ant_exit_code -ne 0 ]; then
+            _notify_task "Ant all" "Build failed."
+        else
+            _notify_task "Ant all" "Build completed!"
+        fi
+
+        return $ant_exit_code
     else
         _notify_task "Ant all Failed" "You need to populate the env variable LIFERAY_PRJ"
+        return 1
     fi
 }
 
-# Server management
 start() {
     if [[ -n "$LIFERAY_HOME" ]]; then
-        local tomcat_log="$LIFERAY_HOME/tomcat-10.1.48/logs/catalina.out"
-        rm -rf "$tomcat_log"
-        "$LIFERAY_HOME/tomcat-10.1.48/bin/catalina.sh" glowroot jpda start && if [[ -n "$PAGER" ]]; then $PAGER "$tomcat_log"; fi
+        local tomcat_log="$LIFERAY_HOME/tomcat/logs/catalina.out"
+        rm -rf "$tomcat_log" &&
+        "$LIFERAY_HOME/tomcat/bin/catalina.sh" glowroot jpda start && if [[ -n "$PAGER" ]]; then $PAGER "$tomcat_log";fi
     else
         _notify_task "Start failed" "You need to populate the env variable LIFERAY_HOME"
+        return 1
     fi
+}
+
+restartTomcat() {
+    stop && clearTomcat && start
+}
+
+reinitTomcat() {
+    stop && clearTomcatFull && dropdb && start
 }
 
 stop() {
     if [[ -n "$LIFERAY_HOME" ]]; then
-        "$LIFERAY_HOME/tomcat-10.1.48/bin/catalina.sh" stop
+        "$LIFERAY_HOME/tomcat/bin/catalina.sh" stop
     else
         _notify_task "Start failed" "You need to populate the env variable LIFERAY_HOME"
+        return 1
     fi
+}
+
+testIntegration() {
+   blade gw testIntegration "$@"
 }
