@@ -50,17 +50,17 @@ deploya() {
 
 dropdb() {
     if [[ -n "$1" ]]; then
-        sudo -u postgres psql -c "drop database $1;"
+        sudo -u postgres psql -c "drop database $1 with (force);"
     else
-        sudo -u postgres psql -c 'drop database lportal;'
+        sudo -u postgres psql -c 'drop database lportal with (force);'
     fi
 }
 
 recreatedb() {
     if [[ -n "$1" ]]; then
-        sudo -u postgres psql -c "drop database $1;" -c " create database $1 owner sa;"
+        dropdb "$1" && sudo -u postgres psql -c "create database $1 owner sa;"
     else
-        sudo -u postgres psql -c 'drop database lportal;' -c 'create database lportal owner sa;'
+        dropdb && sudo -u postgres psql -c 'create database lportal owner sa;'
     fi
 }
 
@@ -121,6 +121,27 @@ sfl() {
     fi
 }
 
+build-portal-service() {
+    local status=0
+    if [[ -n "$LIFERAY_PRJ" ]]; then
+        (
+            cd $LIFERAY_PRJ/portal-impl
+            ant build-service-portal build-service-portlets
+        )
+
+        local build_exit_code=$?
+        if [ $build_exit_code -ne 0 ]; then
+            _notify_task "Build portal service" "Failed."
+        else
+            _notify_task "Build portal service" "Completed!"
+        fi
+        return $build_exit_code
+    else
+        _notify_task "Build portal service" "You need to populate the env variable LIFERAY_PRJ"
+        return 1
+    fi
+}
+
 build-rest() {
     blade gw buildRest "$@"
 
@@ -148,16 +169,24 @@ build-service() {
 }
 
 build-language() {
-    blade gw buildLang "$@"
+    local status=0
+    if [[ -n "$LIFERAY_PRJ" ]]; then
+        (
+            cd $LIFERAY_PRJ/modules/apps/portal-language;
+            blade gw buildLang "$@"
+        )
 
-    local build_exit_code=$?
-    if [ $build_exit_code -ne 0 ]; then
-        _notify_task "BuildLanguage" "Failed."
+        local build_exit_code=$?
+        if [ $build_exit_code -ne 0 ]; then
+            _notify_task "BuildLanguage" "Failed."
+        else
+            _notify_task "BuildLanguage" "Completed!"
+        fi
+        return $build_exit_code
     else
-        _notify_task "BuildLanguage" "Completed!"
+        _notify_task "BuildLanguage" "You need to populate the env variable LIFERAY_PRJ"
+        return 1
     fi
-
-    return $build_exit_code
 }
 
 rebuild() {
