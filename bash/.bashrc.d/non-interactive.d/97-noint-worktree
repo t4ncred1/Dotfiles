@@ -105,18 +105,6 @@ _wt_find_offset() {
     return 1
 }
 
-_wt_detect_es_version() {
-    # Returns 7 or 8 based on existing config files; default 8.
-    local cfg_dir="$1/osgi/configs"
-    if [[ -f "$cfg_dir/com.liferay.portal.search.elasticsearch7.configuration.ElasticsearchConfiguration.config" ]]; then
-        echo "7"
-    elif [[ -f "$cfg_dir/com.liferay.portal.search.elasticsearch8.configuration.ElasticsearchConfiguration.config" ]]; then
-        echo "8"
-    else
-        echo "8"
-    fi
-}
-
 _wt_current_http_port() {
     # Extract the HTTP/1.1 connector port from server.xml.
     local server_xml="$1"
@@ -228,20 +216,21 @@ _wt_patch_developer_properties() {
 
 _wt_write_es_config() {
     # Wiped on rebuild — always overwrite.
+    # Write both ES7 and ES8 configs; only the active module reads its own file.
     local bundle_dir="$1"
     local offset="$2"
-    local version
-    version=$(_wt_detect_es_version "$bundle_dir")
-    local file="$bundle_dir/osgi/configs/com.liferay.portal.search.elasticsearch${version}.configuration.ElasticsearchConfiguration.config"
     local http=$((_WT_PORT_ES_HTTP + offset))
     local transport=$((_WT_PORT_ES_TRANSPORT + offset))
     mkdir -p "$bundle_dir/osgi/configs"
-    cat > "$file" <<EOF
+    local version
+    for version in 7 8; do
+        cat > "$bundle_dir/osgi/configs/com.liferay.portal.search.elasticsearch${version}.configuration.ElasticsearchConfiguration.config" <<EOF
 sidecarHttpPort="${http}"
 transportTcpPort="${transport}"
 networkBindHost="127.0.0.1"
 networkPublishHost="127.0.0.1"
 EOF
+    done
 }
 
 _wt_write_arquillian_config() {
