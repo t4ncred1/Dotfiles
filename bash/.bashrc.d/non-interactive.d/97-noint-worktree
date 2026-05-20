@@ -23,6 +23,7 @@ _WT_PORT_ES_TRANSPORT=9301
 _WT_PORT_GLOWROOT=4000
 _WT_PORT_ARQUILLIAN=32763
 _WT_PORT_DATAGUARD=42763
+_WT_PORT_JMX_REMOTE=8099
 
 # ==========================================
 # Helpers
@@ -278,6 +279,20 @@ _wt_patch_glowroot() {
     jq ".web.port = ${target}" "$file" > "$tmp" && mv "$tmp" "$file"
 }
 
+_wt_patch_test_user_properties() {
+    # Sets jmx.remote.port in <worktree>/test.${user}.properties so that
+    # SetUpArquillianTask substitutes the per-offset port into arquillian.xml.
+    # The file is gitignored (.gitignore: /test.*.properties), safe to overwrite.
+    local worktree_dir="$1"
+    local offset="$2"
+    local file="$worktree_dir/test.$(whoami).properties"
+    local target=$((_WT_PORT_JMX_REMOTE + offset))
+
+    touch "$file"
+    _wt_remove_property "$file" "jmx.remote.port"
+    echo "jmx.remote.port=${target}" >> "$file"
+}
+
 _wt_patch_portal_ext() {
     # Survives rebuild. Preserve existing JDBC user/pass when present.
     local bundle_dir="$1"
@@ -359,6 +374,7 @@ _wt_print_summary() {
     local glow=$((_WT_PORT_GLOWROOT + offset))
     local arq=$((_WT_PORT_ARQUILLIAN + offset))
     local dg=$((_WT_PORT_DATAGUARD + offset))
+    local jmx=$((_WT_PORT_JMX_REMOTE + offset))
 
     printf '\n=== Worktree Configuration ===\n'
     printf 'Worktree:       %s\n' "$worktree_dir"
@@ -376,7 +392,8 @@ _wt_print_summary() {
     printf '  ES Transport     %s\n' "$es_tx"
     printf '  Glowroot         %s\n' "$glow"
     printf '  Arquillian       %s\n' "$arq"
-    printf '  DataGuard        %s\n\n' "$dg"
+    printf '  DataGuard        %s\n' "$dg"
+    printf '  JMX Remote       %s\n\n' "$jmx"
     printf 'Liferay:    http://localhost:%s\n' "$http"
     printf 'Glowroot:   http://localhost:%s\n' "$glow"
 }
@@ -429,6 +446,7 @@ _wt_configure_ports() {
     _wt_write_dataguard_config "$bundle_dir" "$offset"
     _wt_patch_glowroot "$bundle_dir" "$offset"
     _wt_patch_portal_ext "$bundle_dir" "$offset" "$db_name"
+    _wt_patch_test_user_properties "$worktree_dir" "$offset"
     _wt_create_database "$db_name"
     _wt_clear_osgi_state "$bundle_dir"
 
