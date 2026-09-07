@@ -10,16 +10,12 @@
 ;; - user-mail-address
 ;; - org-directory
 ;; - org-roam-directory
-;; Optionally, if used:
-;; - t4n/bib-bib
-;; - t4n/bib-library
-;; - t4n/bib-notes
 ;; Defaults for the configuration to be loaded
 (setq user-full-name "Tancredi Covioli"
       user-mail-address "tancredi.covioli@gmail.com"
       org-directory "~/org"
       org-roam-directory "~/org/roam"
-)
+      )
 (setq t4n/bib-bib "~/documenti/university/magistrale/tesi/references.bib"
       t4n/bib-library "~/documenti/university/magistrale/tesi/libreria"
       t4n/bib-notes "~/documenti/university/magistrale/tesi/note")
@@ -61,7 +57,7 @@
 ;; Change the theme depending on the time
 (let ((hour (nth 2 (decode-time))))
   (if (and (> hour 7) (< hour 17))
-      (setq doom-theme 'doom-nord-light)
+      (setq doom-theme 'doom-one-light)
     (setq doom-theme 'doom-one)))
 
 ;; This determines the style of line numbers in effect. If set to `nil', line
@@ -104,10 +100,10 @@
 ;; Add a mapping to insert a note when org noter is active and pdf-view is enabled
 ;; in a buffer.
 (map! (:when (modulep! :lang org +noter)
-       :map pdf-view-mode-map
-       :after org-noter
-       :desc "Insert a note in org noter"
-       :nvi "i" #'org-noter-insert-note))
+        :map pdf-view-mode-map
+        :after org-noter
+        :desc "Insert a note in org noter"
+        :nvi "i" #'org-noter-insert-note))
 
 ;;
 ;; Add a dired mapping to search only in the filenames
@@ -115,7 +111,7 @@
 (map! :map dired-mode-map
       :desc "iSearch forward for filename"
       :localleader "/" #'dired-isearch-filenames
-)
+      )
 
 ;;
 ;; Add a global mapping to open dired in the other window
@@ -132,35 +128,105 @@
       :leader "p _" #'projectile-dired-other-window)
 
 ;;
-;; Capture templates
+;; Add a mapping to open the VC at the root of the project
 ;;
-(after! org
- (setq org-capture-templates '(
-  ("t" "Personal todo" entry
-  (file+headline +org-capture-todo-file "Inbox")
-  "* TODO %?\n%i\n%a" :prepend t)
-  ("n" "Personal notes" entry
-  (file+headline +org-capture-notes-file "Inbox")
-  "* %u %?\n%i\n%a" :prepend t)
-  ("j" "Journal" entry
-   (file+olp+datetree +org-capture-journal-file)
-   "* %U %?\n%i%?\n%a" :prepend t)
+(defun +t4n/projectile-switch-vc ()
+  "Switch to a project workspace and open its Magit status buffer."
+  (interactive)
+  (let ((+workspaces-switch-project-function #'projectile-vc))
+    (projectile-switch-project)))
 
- ;; ("p" "Templates for projects")
- ;; ("pt" "Project-local todo" entry
- ;;  (file +org-capture-project-todo-file)
- ;;  "* TODO %?\n%i\n%a" :prepend t)
- ;; ("pn" "Project-local notes" entry
- ;;  (file +org-capture-project-notes-file)
- ;;  "* %U %?\n%i\n%a" :prepend nil)
-  ("o" "Centralized templates for projects")
-  ("ot" "Project todo" entry #'+org-capture-central-project-todo-file
-         "* TODO %?\n %i\n %a" :heading "Tasks" :prepend nil)
-  ("on" "Project notes" entry #'+org-capture-central-project-notes-file
-         "* %U %?\n %i\n %a" :heading "Notes" :prepend t)
-  ("oj" "Project journal" entry #'+org-capture-central-project-notes-file
-         "* %U\n %i\n %a" :heading "Journal" :prepend t)
-       )))
+(map! :leader
+      :prefix "p"
+      :desc "VC project" "v" #'+t4n/projectile-switch-vc)
+
+(after! org
+  (defun t4n/org-roam-list-files ()
+    "Return a list of all notes in the org-roam directory."
+    (directory-files-recursively org-roam-directory "\\.org$"))
+  ;; Include all Org-roam files in the Org-agenda
+  (setq org-agenda-files
+        (append
+         (directory-files-recursively (file-name-concat org-roam-directory "office" "projects") "\\.org$")
+         (list (file-name-concat org-roam-directory "office" "inbox.org"))))
+  ;; Include roam files to refile target
+  (add-to-list 'org-refile-targets '(t4n/org-roam-list-files :maxlevel . 3))
+  ;; Custom Project Dashboard Agenda View
+  (setq org-agenda-custom-commands
+        '(("p" "Project Dashboard"
+           ((todo "TODO|IN_PROGRESS"
+                  ((org-agenda-overriding-header "=== Open Tasks & Features ===")))
+            (tags "meeting"
+                  ((org-agenda-overriding-header "=== Past Meetings ===")
+                   (org-agenda-sorting-strategy '(timestamp-down))
+                   (org-agenda-remove-tags t)
+                   (org-use-tag-inheritance nil)))))))
+
+  ;; org capture templates
+  (setq org-capture-templates '(
+                                ("t" "Personal todo" entry
+                                 (file+headline +org-capture-todo-file "Inbox")
+                                 "* TODO %?\n%i\n%a" :prepend t)
+                                ("n" "Personal notes" entry
+                                 (file+headline +org-capture-notes-file "Inbox")
+                                 "* %u %?\n%i\n%a" :prepend t)
+                                ("j" "Journal" entry
+                                 (file+olp+datetree +org-capture-journal-file)
+                                 "* %U %?\n%i%?\n%a" :prepend t))))
+
+(after! org-roam
+  ;; Clean up the Backlinks sidebar view (hide unlinked text noise)
+  (setq org-roam-mode-sections
+        (list #'org-roam-backlinks-section
+              #'org-roam-reflinks-section))
+  
+  ;; Adjust context snippet length in the backlinks buffer
+  (setq org-roam-preview-function 
+        (lambda () (org-roam-preview-default-function 15)))
+
+  ;; Display node title, tags, and origin file path in the completion prompt
+  (setq org-roam-node-display-template
+        (concat "${title:*} "
+                (propertize "${tags:15}" 'face 'org-tag) " "
+                (propertize "(${file:30})" 'face 'font-lock-comment-face)))
+
+  ;; Automatically generate an Org ID for captured headlines upon finalizing (C-c C-c)
+  ;;(add-hook 'org-capture-prepare-finalize-hook #'org-id-get-create)
+
+  ;; Org Roam capture templates
+  (setq org-roam-capture-templates
+        `(
+          ;; Office-related templates
+          ("o" "Office" )
+
+          ("oc" "Content Note (Refile)" entry
+           ,(string-join
+             `("* ${title} :note:"
+               ":PROPERTIES:"
+               ,(format org-property-format ":ID:" "%(org-id-new)") 
+               ":END:"
+               "%?")
+             "\n")
+           :target (file+olp "office/inbox.org" ("Content Notes")))
+          ("oi" "Inbox Note (Refile)" entry
+           ,(string-join
+             `("* TODO ${title}"
+               ":PROPERTIES:"
+               ,(format org-property-format ":ID:" "%(org-id-new)") 
+               ":END:"
+               "%?")
+             "\n")
+           :target (file+olp "office/inbox.org" ("Inbox")))
+          ("om" "Meeting Note (Refile)" entry
+           ,(string-join
+             `("* MEETING [%<%Y-%m-%d>] ${title} :meeting:"
+               ":PROPERTIES:"
+               ,(format org-property-format ":ID:" "%(org-id-new)") 
+               ":END:"
+               "%?")
+             "\n")
+           :target (file+olp "office/inbox.org" ("Meetings")))
+          )))
 
 ;; reduce the size of the icons
 (setq all-the-icons-scale-factor 1.1)
@@ -169,86 +235,54 @@
 (remove-hook 'undo-fu-mode-hook #'global-undo-fu-session-mode)
 
 ;; when poetry is enabled, set a shortcut
-(map! :map python-mode-map
-      :when (modulep! :lang python +poetry)
-      :localleader
-      :desc "poetry" "p" #'poetry)
-
-;;
-;; Uni stuff, now obsolete but still viable
-;;
+(after! python
+  (map! :map python-mode-map
+        :when (modulep! :lang python +poetry)
+        :localleader
+        :desc "poetry" "p" #'poetry))
 
 
-(setq bibtex-completion-bibliography t4n/bib-bib ; my bibliography pdf location
-      bibtex-completion-library-path t4n/bib-library ; my pdf lib location
-      bibtex-completion-notes-path t4n/bib-notes)
+;; Add hook to stop hangs from git-commit
+(add-hook! 'git-commit-setup-hook
+  (corfu-mode -1))
 
-(after! org-noter
-  (setq
-   org-noter-always-create-frame t
-   org-noter-notes-search-path (list t4n/bib-notes)
-   org-noter-hide-other t
-   org-noter-auto-save-last-location nil
-   org-noter-doc-split-fraction '(0.60 . 0.5)
-   )
-  (add-hook 'org-noter-doc-mode-hook 'pdf-view-fit-width-to-window)
-  )
+;; Add advice to stop dictionary completions
+(after! cape
+  (advice-add 'cape-dabbrev :override #'ignore)
+  (advice-add 'cape-dict :override #'ignore))
 
-;; tools: biblio configuration
-(after! citar
-  (setq citar-bibliography (list t4n/bib-bib)
-        citar-library-paths (list t4n/bib-library)
-        citar-notes-paths (list t4n/bib-notes))
-  )
-
-;; (after! org-roam
-;;   (setq org-roam-v2-ack t
-;;         +org-roam-open-buffer-on-find-file nil
-;;         org-roam-completion-everywhere nil
-;;         org-roam-directory t4n/bib-notes))
-(after! org-roam
-  (setq org-roam-capture-templates
-        '(;; Default templates
-          ("d" "default"
-           plain "%?"
-           :if-new (file+head "%<%Y%m%d%H%M%S>-${slug}.org" "#+title: ${title}\n")
-           :unnarrowed t)
-          ;; Office-related templates
-          ("o" "Office keymaps" )
-          ;; Template for meeting notes
-          ("om" "Meeting notes" entry
-           "* %<%Y-%m-%d> Meeting notes - ${title}\n%?"
-           :if-new (file+head
-                    "office/meetings/%<%Y%m%d%H%M%S>_meeting_${slug}.org"
-                    "#+title: Meeting notes - ${title}\n#+date: %T"
-                    )
-           :unnarrowed t)
-          ("on" "Concept Notes" entry
-           "* ${title}\n%?"
-           :if-new (file+head
-                    "office/notes/%<%Y%m%d%H%M%S>_note_${slug}.org"
-                    "#+title: Concept Note - ${title}\n#+date: %T"
-                    )
-           :unnarrowed t)
+;; Set up openwith
+(use-package! openwith
+  :config
+  (openwith-mode t)
+  (setq openwith-associations
+        '(
+          ;; Route PDFs and Images to your OS default viewer (xdg-open)
+          ("\\.\\(pdf\\|png\\|jpg\\|jpeg\\|svg\\)\\'" "xdg-open" (file))
           )))
 
-;; (use-package! org-roam-bibtex :after org-roam
-;;   :config
-;;   (setq orb-preformat-keywords
-;;       '("citekey" "title" "url" "author-or-editor" "keywords" "file")
-;;       orb-process-file-keyword t
-;;       orb-attached-file-extensions '("pdf")
-;;       orb-roam-ref-format 'org-cite)
-;;   (setq org-roam-capture-templates
-;;         '(;; bibliography note template
-;;           ("r" "bibliography reference" plain "%?"
-;;            :if-new (file+head "${citekey}.org"
-;;                               "#+title: Notes on ${title}\n* ${title}\n :PROPERTIES:\n  :Custom_ID: ${citekey}\n  :URL: ${url}\n  :AUTHOR: ${author-or-editor}\n  :NOTER_DOCUMENT: %(orb-get-attached-file \"${citekey}\")\n  :NOTER_PAGE: \n  :END:\n\n")
-;;            :unnarrowed t)
-;;           ))
-;;   (require 'org-roam-bibtex)
-;;   (setq
-;;         citar-open-note-function 'orb-citar-edit-note
-;;         orb-preformat-keywords '("citekey" "title" "url" "author-or-editor" "keywords" "file")
-;;         orb-process-file-keyword t
-;;         orb-attached-file-extensions '("pdf")))
+;;
+;; Uni stuff, now obsolete
+;;
+
+                                        ;(setq bibtex-completion-bibliography t4n/bib-bib ; my bibliography pdf location
+                                        ;      bibtex-completion-library-path t4n/bib-library ; my pdf lib location
+                                        ;      bibtex-completion-notes-path t4n/bib-notes)
+                                        ;
+                                        ;(after! org-noter
+                                        ;  (setq
+                                        ;   org-noter-always-create-frame t
+                                        ;   org-noter-notes-search-path (list t4n/bib-notes)
+                                        ;   org-noter-hide-other t
+                                        ;   org-noter-auto-save-last-location nil
+                                        ;   org-noter-doc-split-fraction '(0.60 . 0.5)
+                                        ;   )
+                                        ;  (add-hook 'org-noter-doc-mode-hook 'pdf-view-fit-width-to-window)
+                                        ;  )
+                                        ;
+;;; tools: biblio configuration
+                                        ;(after! citar
+                                        ;  (setq citar-bibliography (list t4n/bib-bib)
+                                        ;        citar-library-paths (list t4n/bib-library)
+                                        ;        citar-notes-paths (list t4n/bib-notes))
+                                        ;  )

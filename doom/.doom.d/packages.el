@@ -55,3 +55,4 @@
 ;; (unpin! t)
 
 (package! csv-mode)
+(package! org-super-agenda)
