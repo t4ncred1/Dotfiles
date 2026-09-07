@@ -17,7 +17,7 @@ _notify_task() {
     fi
 }
 
-## Java/blade building commands
+## commands
 baseline() {
     blade gw baseline "$@"
 
@@ -29,56 +29,6 @@ baseline() {
     fi
 
     return $build_exit_code
-}
-
-clearTomcat() {
-    if [[ -z "$LIFERAY_HOME" ]]; then
-        _notify_task "Clear tomcat failed" "You need to populate the env variable LIFERAY_HOME"
-        return 1;
-    fi
-
-    local folders_to_empty=(
-        "osgi/state"
-        "tomcat/work"
-        "tomcat/temp"
-    )
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --dir)
-                if [[ -n "$2" && "$2" != --* ]]; then
-                    paths_to_clean+=("$2")
-                    shift 2 # Sposta la coda degli argomenti di due posizioni
-                else
-                    echo "Error: --dir requires a value."
-                    return 1
-                fi
-                ;;
-            *)
-                echo "Unknows parameter: $1"
-                shift
-                ;;
-        esac
-    done
-
-    for folder in "${folders_to_empty[@]}"; do
-        local full_path="${LIFERAY_HOME}/${folder}"
-
-        if [ -d "$full_path" ]; then
-            if [ "$(ls -A "$full_path" 2>/dev/null)" ]; then
-                rm -rf "$full_path"/*
-            else
-                echo "Directory $full_path is empty already."
-            fi
-        else
-            echo "Directory $full_path does not exist. Skipping."
-        fi
-    done
-}
-
-
-clearTomcatFull() {
-    clearTomcat --dir "data"
 }
 
 deploy() {
@@ -256,7 +206,86 @@ rebuild-full() {
     fi
 }
 
-start() {
+testIntegration() {
+   blade gw testIntegration "$@"
+}
+
+tomclear() {
+    if [[ -z "$LIFERAY_HOME" ]]; then
+        _notify_task "Clear tomcat failed" "You need to populate the env variable LIFERAY_HOME"
+        return 1;
+    fi
+
+    local folders_to_empty=(
+        "osgi/state"
+        "tomcat/work"
+        "tomcat/temp"
+    )
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dir)
+                if [[ -n "$2" && "$2" != --* ]]; then
+                    folders_to_empty+=("$2")
+                    shift 2 # Sposta la coda degli argomenti di due posizioni
+                else
+                    echo "Error: --dir requires a value."
+                    return 1
+                fi
+                ;;
+            *)
+                echo "Unknows parameter: $1"
+                shift
+                ;;
+        esac
+    done
+
+    for folder in "${folders_to_empty[@]}"; do
+        local full_path="${LIFERAY_HOME}/${folder}"
+
+        if [ -d "$full_path" ]; then
+            if [ "$(ls -A "$full_path" 2>/dev/null)" ]; then
+                echo "Emptying directory $full_path."
+                rm -rf "$full_path"/*
+            else
+                echo "Directory $full_path is empty already."
+            fi
+        else
+            echo "Directory $full_path does not exist. Skipping."
+        fi
+    done
+}
+
+
+tomclearfull() {
+    tomclear --dir "data"
+}
+
+tominit() {
+    tomstop;
+    tomclearfull && recreatedb && tomstart
+}
+
+tomlog() {
+    if [[ -z "$LIFERAY_HOME" ]]; then
+        echo  "Error: You need to populate the env variable LIFERAY_HOME."
+        return 1
+    fi
+    if [[ -z "$PAGER" ]]; then
+        echo "Error: you need to define a pager in your PAGER env variable."
+        return 1
+    fi
+
+    local tomcat_log="$LIFERAY_HOME/tomcat/logs/catalina.out"
+    $PAGER "$tomcat_log";
+}
+
+tomrestart() {
+    tomstop;
+    tomclear && tomstart
+}
+
+tomstart() {
     if [[ -n "$LIFERAY_HOME" ]]; then
         local tomcat_log="$LIFERAY_HOME/tomcat/logs/catalina.out"
         rm -rf "$tomcat_log" &&
@@ -267,23 +296,11 @@ start() {
     fi
 }
 
-restartTomcat() {
-    stop && clearTomcat && start
-}
-
-reinitTomcat() {
-    stop && clearTomcatFull && dropdb && start
-}
-
-stop() {
+tomstop() {
     if [[ -n "$LIFERAY_HOME" ]]; then
         "$LIFERAY_HOME/tomcat/bin/catalina.sh" stop
     else
         _notify_task "Start failed" "You need to populate the env variable LIFERAY_HOME"
         return 1
     fi
-}
-
-testIntegration() {
-   blade gw testIntegration "$@"
 }
