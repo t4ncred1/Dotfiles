@@ -2,12 +2,10 @@
 
 # Only import if the current shell is interactive
 
-echo "sourcing interactive files"
 if ! [[ $- != *i* ]] then
     if [ -d ~/.bashrc.d/interactive.d ]; then
         for rc in ~/.bashrc.d/interactive.d/*; do
             if [ -f "$rc" ]; then
-                echo "- sourcing file $rc";
                 . "$rc"
             fi
         done
