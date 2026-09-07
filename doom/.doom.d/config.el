@@ -106,10 +106,27 @@
        :desc "Insert a note in org noter"
        :nvi "i" #'org-noter-insert-note))
 
+;;
+;; Add a dired mapping to search only in the filenames
+;;
 (map! :map dired-mode-map
       :desc "iSearch forward for filename"
       :localleader "/" #'dired-isearch-filenames
 )
+
+;;
+;; Add a global mapping to open dired in the other window
+;;
+(map! :desc "Open dired (other window)"
+      :leader "o _" #'dired-jump-other-window)
+
+;;
+;; Add a mapping to open dired at the root of the project
+;;
+(map! :desc "Open project dired"
+      :leader "p -" #'projectile-dired)
+(map! :desc "Open project dired (other window)"
+      :leader "p _" #'projectile-dired-other-window)
 
 ;;
 ;; Capture templates
