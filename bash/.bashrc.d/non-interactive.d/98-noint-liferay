@@ -1,0 +1,87 @@
+#!/bin/bash
+
+#
+# 98-noint-liferay
+#
+
+# Functions
+
+## Helpers
+_notify_task() {
+    local title=$1
+    local message=$2
+    if command -v notify > /dev/null 2>&1; then
+        notify "$title" "$message"
+    else
+        echo "$title" "-" "$message"
+    fi
+}
+
+## Java/blade building commands
+baseline() {
+    blade gw baseline "$@"
+}
+
+deploy() {
+    blade gw deploy "$@";
+    _notify_task "Deploy" "Deploy completed!"
+}
+
+deploya() {
+   deploy -a -Pnodejs.node.env=development "$@";
+}
+
+sf() {
+    blade gw formatSource "$@"
+    _notify_task "Source Formatter" "Completed!"
+}
+
+build-rest() {
+    blade gw buildRest "$@"
+    _notify_task "BuildRest" "Completed!"
+}
+build-service() {
+    blade gw buildService "$@"
+    _notify_task "BuildService" "Completed!"
+}
+
+build-language() {
+    blade gw buildLang "$@"
+    _notify_task "BuildLanguage" "Completed!"
+}
+
+rebuild() {
+    if [[ -n "$LIFERAY_PRJ" ]]; then
+        (
+            cd $LIFERAY_PRJ;
+            ant setup-sdk && ant setup-profile-dxp && ij && ant all && ij
+        )
+        _notify_task "Ant all" "Build completed!"
+    else
+        _notify_task "Ant all Failed" "You need to populate the env variable LIFERAY_PRJ"
+    fi
+}
+
+rebuild-full() {
+    if [[ -n "$LIFERAY_PRJ" ]]; then
+        (
+            cd $LIFERAY_PRJ;
+            git clean -dfx -e "build.$(whoami).properties" -e "app.server.$(whoami).properties"
+            ant setup-sdk && ant setup-profile-dxp && ij && ant all && ij
+        )
+        _notify_task "Ant all" "Build completed!"
+    else
+        _notify_task "Ant all Failed" "You need to populate the env variable LIFERAY_PRJ"
+    fi
+}
+
+# Server management
+start() {
+    if [[ -n "$LIFERAY_HOME" ]]; then
+        local tomcat_log="$LIFERAY_HOME/tomcat-10.1.48/logs/catalina.out"
+        rm -rf "$tomcat_log"
+        "$LIFERAY_HOME/tomcat-10.1.48/bin/catalina.sh" glowroot jpda start && logs
+    else
+        _notify_task "Start failed" "You need to populate the env variable LIFERAY_HOME"
+    fi
+}

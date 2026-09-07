@@ -1,0 +1,12 @@
+#!/bin/bash
+
+#
+# 99-int-t4ncred1
+#
+
+if ! [[ $- != *i* ]] then
+
+   # Only set if in an interactive shell
+   alias ls='ls --color=auto'
+
+fi
