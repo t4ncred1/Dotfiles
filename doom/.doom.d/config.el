@@ -24,6 +24,9 @@
       t4n/bib-library "~/documenti/university/magistrale/tesi/libreria"
       t4n/bib-notes "~/documenti/university/magistrale/tesi/note")
 
+(setq require-final-newline nil)
+(setq mode-require-final-newline nil)
+
 (load! "./local_config.el" nil t)
 
 ;; Set BASH_ENV to source non-interactive files
