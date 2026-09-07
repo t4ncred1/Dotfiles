@@ -17,11 +17,20 @@ _notify_task() {
     fi
 }
 
+_gradle_init_args() {
+    # Echoes `-I <abs-path>` when init-local.gradle exists at the project root,
+    # so wtcli-configured port overrides (testIntegrationTomcat.portNumber,
+    # liferay.arquillian.port) are applied to every gradle command.
+    if [[ -n "$CURRENT_LIFERAY_PRJ" && -f "$CURRENT_LIFERAY_PRJ/init-local.gradle" ]]; then
+        echo "-I $CURRENT_LIFERAY_PRJ/init-local.gradle"
+    fi
+}
+
 # ==========================================
 # Private Command Functions
 # ==========================================
 _baseline() {
-    blade gw baseline "$@"
+    blade gw $(_gradle_init_args) baseline "$@"
     local build_exit_code=$?
     if [ $build_exit_code -ne 0 ]; then
         _notify_task "Baseline" "Failed."
@@ -32,7 +41,7 @@ _baseline() {
 }
 
 _deploy() {
-    blade gw deploy "$@"
+    blade gw $(_gradle_init_args) deploy "$@"
     local build_exit_code=$?
     if [ $build_exit_code -ne 0 ]; then
         _notify_task "Deploy" "Failed."
@@ -59,7 +68,7 @@ _recreatedb() {
 }
 
 _sf() {
-    blade gw formatSource "$@"
+    blade gw $(_gradle_init_args) formatSource "$@"
     local build_exit_code=$?
     if [ $build_exit_code -ne 0 ]; then
         _notify_task "FormatSource" "Failed."
@@ -127,7 +136,7 @@ _buildPortalService() {
 }
 
 _buildRest() {
-    blade gw buildRest "$@"
+    blade gw $(_gradle_init_args) buildRest "$@"
     local build_exit_code=$?
     if [ $build_exit_code -ne 0 ]; then
         _notify_task "BuildRest" "Failed."
@@ -138,7 +147,7 @@ _buildRest() {
 }
 
 _buildService() {
-    blade gw buildService "$@"
+    blade gw $(_gradle_init_args) buildService "$@"
     local build_exit_code=$?
     if [ $build_exit_code -ne 0 ]; then
         _notify_task "BuildService" "Failed."
@@ -152,7 +161,7 @@ _buildLanguage() {
     if [[ -n "$CURRENT_LIFERAY_PRJ" ]]; then
         (
             cd "$CURRENT_LIFERAY_PRJ/modules/apps/portal-language"
-            blade gw buildLang "$@"
+            blade gw $(_gradle_init_args) buildLang "$@"
         )
         local build_exit_code=$?
         if [ $build_exit_code -ne 0 ]; then
@@ -226,15 +235,15 @@ _rebuildFull() {
 }
 
 _gw() {
-    blade gw "$@"
+    blade gw $(_gradle_init_args) "$@"
 }
 
 _gwtest() {
-    blade gw test "$@"
+    blade gw $(_gradle_init_args) test "$@"
 }
 
 _testIntegration() {
-   blade gw testIntegration "$@"
+   blade gw $(_gradle_init_args) testIntegration "$@"
 }
 
 _tomclear() {
@@ -327,7 +336,25 @@ _tomstart() {
 
 _tomstop() {
     if [[ -n "$CURRENT_LIFERAY_HOME" ]]; then
-        "$CURRENT_LIFERAY_HOME/tomcat/bin/catalina.sh" stop
+        if pgrep -f "catalina.base=$CURRENT_LIFERAY_HOME/tomcat" > /dev/null; then
+            "$CURRENT_LIFERAY_HOME/tomcat/bin/catalina.sh" stop
+        fi
+
+        # catalina.sh stop returns immediately; wait for the JVM (and its
+        # Elasticsearch sidecar) to actually exit before touching data or
+        # starting a new instance, otherwise the sidecar's node.lock gets
+        # destroyed under the running process.
+        local waited=0
+        while pgrep -f "catalina.base=$CURRENT_LIFERAY_HOME/tomcat" > /dev/null; do
+            if (( waited >= 120 )); then
+                echo "Tomcat did not stop within ${waited}s. Killing it."
+                pkill -9 -f "catalina.base=$CURRENT_LIFERAY_HOME/tomcat"
+                sleep 2
+                break
+            fi
+            sleep 2
+            waited=$((waited + 2))
+        done
     else
         _notify_task "${PREFIX}Stop failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
         return 1
