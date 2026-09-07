@@ -1,0 +1,806 @@
+#!/bin/bash
+
+#
+# 97-noint-worktree
+#
+# Liferay worktree lifecycle: create, configure ports, list, status, cleanup.
+# Mirrors .claude/skills/worktree-setup/SKILL.md.
+#
+
+# ==========================================
+# Constants — service port defaults
+# ==========================================
+# Offset 0 is RESERVED for the main worktree. Never assign it to a secondary one.
+
+_WT_PORT_TOMCAT_HTTP=8080
+_WT_PORT_TOMCAT_SHUTDOWN=8005
+_WT_PORT_TOMCAT_AJP=8009
+_WT_PORT_TOMCAT_HTTPS=8443
+_WT_PORT_JDWP=8000
+_WT_PORT_OSGI_CONSOLE=11311
+_WT_PORT_ES_HTTP=9201
+_WT_PORT_ES_TRANSPORT=9301
+_WT_PORT_GLOWROOT=4000
+_WT_PORT_ARQUILLIAN=32763
+_WT_PORT_DATAGUARD=42763
+
+# ==========================================
+# Helpers
+# ==========================================
+_wt_sed_inplace() {
+    if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
+_wt_db_name() {
+    # Derive DB name from a worktree dir name.
+    # liferay-portal-LPD-12345 -> lportallpd_12345
+    # liferay-portal-hotfix    -> lportalhotfix
+    # liferay-portal           -> lportal (main)
+    local dir_name="$1"
+    if [[ "$dir_name" == "liferay-portal" ]]; then
+        echo "lportal"
+        return
+    fi
+    local stem="${dir_name#liferay-}"
+    stem=$(echo "$stem" \
+        | tr '[:upper:]' '[:lower:]' \
+        | sed -E 's/[^a-z0-9]/_/g; s/_+/_/g; s/^_//; s/_$//')
+    stem="${stem:0:56}"
+    echo "lportal${stem}"
+}
+
+_wt_resolve_bundle() {
+    # Read app.server.<user>.properties and resolve the bundle parent directory.
+    # Falls back to <worktree>/bundle.
+    local worktree_root="$1"
+    local props="$worktree_root/app.server.$(whoami).properties"
+    local parent_dir=""
+    if [[ -f "$props" ]]; then
+        parent_dir=$(grep -E '^app\.server\.parent\.dir=' "$props" \
+            | tail -n 1 \
+            | cut -d= -f2-)
+        parent_dir="${parent_dir//\$\{project.dir\}/$worktree_root}"
+    fi
+    [[ -z "$parent_dir" ]] && parent_dir="$worktree_root/bundle"
+    echo "$parent_dir"
+}
+
+_wt_find_tomcat() {
+    local bundle_dir="$1"
+    [[ -d "$bundle_dir" ]] || return 0
+    find "$bundle_dir" -maxdepth 1 -type d -name 'tomcat-*' 2>/dev/null | head -n 1
+}
+
+_wt_offset_ports_free() {
+    local offset="$1"
+    local p
+    for p in \
+        $((_WT_PORT_TOMCAT_HTTP + offset)) \
+        $((_WT_PORT_TOMCAT_SHUTDOWN + offset)) \
+        $((_WT_PORT_JDWP + offset)) \
+        $((_WT_PORT_OSGI_CONSOLE + offset)) \
+        $((_WT_PORT_ES_HTTP + offset)) \
+        $((_WT_PORT_ES_TRANSPORT + offset)) \
+        $((_WT_PORT_GLOWROOT + offset)); do
+        if nc -z localhost "$p" 2>/dev/null; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+_wt_find_offset() {
+    local offset=1
+    while (( offset < 100 )); do
+        if _wt_offset_ports_free "$offset"; then
+            echo "$offset"
+            return 0
+        fi
+        offset=$((offset + 1))
+    done
+    return 1
+}
+
+_wt_detect_es_version() {
+    # Returns 7 or 8 based on existing config files; default 8.
+    local cfg_dir="$1/osgi/configs"
+    if [[ -f "$cfg_dir/com.liferay.portal.search.elasticsearch7.configuration.ElasticsearchConfiguration.config" ]]; then
+        echo "7"
+    elif [[ -f "$cfg_dir/com.liferay.portal.search.elasticsearch8.configuration.ElasticsearchConfiguration.config" ]]; then
+        echo "8"
+    else
+        echo "8"
+    fi
+}
+
+_wt_current_http_port() {
+    # Extract the HTTP/1.1 connector port from server.xml.
+    local server_xml="$1"
+    grep -oE 'port="[0-9]+"[^>]*protocol="HTTP/1\.1"|protocol="HTTP/1\.1"[^>]*port="[0-9]+"' "$server_xml" 2>/dev/null \
+        | grep -oE 'port="[0-9]+"' \
+        | head -n 1 \
+        | grep -oE '[0-9]+'
+}
+
+_wt_remove_property() {
+    local file="$1"
+    local key="$2"
+    [[ -f "$file" ]] || return 0
+    local escaped
+    escaped=$(printf '%s' "$key" | sed -e 's/[]\/$*.^[]/\\&/g')
+    _wt_sed_inplace -E "/^${escaped}=/d" "$file"
+}
+
+_wt_worktree_branch() {
+    # Find the branch name for an absolute worktree path via porcelain output.
+    local target="$1"
+    git worktree list --porcelain 2>/dev/null | awk \
+        -v target="$target" '
+        $1 == "worktree" { current = $2 }
+        $1 == "branch" && current == target {
+            sub("refs/heads/", "", $2)
+            print $2
+            exit
+        }
+    '
+}
+
+# ==========================================
+# Port configuration steps
+# ==========================================
+_wt_patch_server_xml() {
+    local tomcat_dir="$1"
+    local offset="$2"
+    local server_xml="$tomcat_dir/conf/server.xml"
+    [[ -f "$server_xml" ]] || { echo "server.xml not found: $server_xml"; return 1; }
+
+    local target_http=$((_WT_PORT_TOMCAT_HTTP + offset))
+    if grep -q "port=\"${target_http}\"" "$server_xml"; then
+        echo "server.xml already at offset ${offset}, skipping."
+        return 0
+    fi
+
+    local current_http
+    current_http=$(_wt_current_http_port "$server_xml")
+    if [[ -z "$current_http" ]]; then
+        echo "Could not detect current HTTP port in $server_xml"
+        return 1
+    fi
+    local current_offset=$((current_http - _WT_PORT_TOMCAT_HTTP))
+
+    local current_shutdown=$((_WT_PORT_TOMCAT_SHUTDOWN + current_offset))
+    local current_ajp=$((_WT_PORT_TOMCAT_AJP + current_offset))
+    local current_https=$((_WT_PORT_TOMCAT_HTTPS + current_offset))
+    local target_shutdown=$((_WT_PORT_TOMCAT_SHUTDOWN + offset))
+    local target_ajp=$((_WT_PORT_TOMCAT_AJP + offset))
+    local target_https=$((_WT_PORT_TOMCAT_HTTPS + offset))
+
+    _wt_sed_inplace \
+        -e "s/port=\"${current_shutdown}\"/port=\"${target_shutdown}\"/g" \
+        -e "s/port=\"${current_http}\"/port=\"${target_http}\"/g" \
+        -e "s/port=\"${current_ajp}\"/port=\"${target_ajp}\"/g" \
+        -e "s/port=\"${current_https}\"/port=\"${target_https}\"/g" \
+        -e "s/redirectPort=\"${current_https}\"/redirectPort=\"${target_https}\"/g" \
+        "$server_xml"
+}
+
+_wt_patch_setenv() {
+    # JDWP debug port for `catalina.sh jpda start`. setenv.sh survives rebuild.
+    local tomcat_dir="$1"
+    local offset="$2"
+    local file="$tomcat_dir/bin/setenv.sh"
+    local target=$((_WT_PORT_JDWP + offset))
+    local target_value="localhost:${target}"
+    local target_line="export JPDA_ADDRESS=\"${target_value}\""
+
+    touch "$file"
+    if grep -qE "JPDA_ADDRESS=\"?${target_value}\"?(\$|[^0-9])" "$file"; then
+        echo "setenv.sh JPDA_ADDRESS already at ${target_value}, skipping."
+        return 0
+    fi
+    if grep -qE '^[[:space:]]*(export[[:space:]]+)?JPDA_ADDRESS=' "$file"; then
+        _wt_sed_inplace -E "s|^[[:space:]]*(export[[:space:]]+)?JPDA_ADDRESS=.*|${target_line}|" "$file"
+    else
+        echo "${target_line}" >> "$file"
+    fi
+}
+
+_wt_patch_developer_properties() {
+    # Wiped on rebuild — always reapply.
+    local tomcat_dir="$1"
+    local offset="$2"
+    local props="$tomcat_dir/webapps/ROOT/WEB-INF/classes/portal-developer.properties"
+    local target=$((_WT_PORT_OSGI_CONSOLE + offset))
+    if [[ ! -f "$props" ]]; then
+        echo "portal-developer.properties not found, skipping."
+        return 0
+    fi
+    if grep -qE 'osgi\.console=' "$props"; then
+        _wt_sed_inplace -E "s|osgi\.console=.*|osgi.console=localhost:${target}|" "$props"
+    else
+        echo "module.framework.properties.osgi.console=localhost:${target}" >> "$props"
+    fi
+}
+
+_wt_write_es_config() {
+    # Wiped on rebuild — always overwrite.
+    local bundle_dir="$1"
+    local offset="$2"
+    local version
+    version=$(_wt_detect_es_version "$bundle_dir")
+    local file="$bundle_dir/osgi/configs/com.liferay.portal.search.elasticsearch${version}.configuration.ElasticsearchConfiguration.config"
+    local http=$((_WT_PORT_ES_HTTP + offset))
+    local transport=$((_WT_PORT_ES_TRANSPORT + offset))
+    mkdir -p "$bundle_dir/osgi/configs"
+    cat > "$file" <<EOF
+sidecarHttpPort="${http}"
+transportTcpPort="${transport}"
+networkBindHost="127.0.0.1"
+networkPublishHost="127.0.0.1"
+EOF
+}
+
+_wt_write_arquillian_config() {
+    local bundle_dir="$1"
+    local offset="$2"
+    local file="$bundle_dir/osgi/configs/com.liferay.arquillian.extension.junit.bridge.connector.ArquillianConnector.config"
+    local port=$((_WT_PORT_ARQUILLIAN + offset))
+    mkdir -p "$bundle_dir/osgi/configs"
+    cat > "$file" <<EOF
+port="${port}"
+EOF
+}
+
+_wt_write_dataguard_config() {
+    local bundle_dir="$1"
+    local offset="$2"
+    local file="$bundle_dir/osgi/configs/com.liferay.data.guard.connector.DataGuardConnector.config"
+    local port=$((_WT_PORT_DATAGUARD + offset))
+    mkdir -p "$bundle_dir/osgi/configs"
+    cat > "$file" <<EOF
+port="${port}"
+EOF
+}
+
+_wt_patch_glowroot() {
+    # Survives rebuild — skip if already correct.
+    local bundle_dir="$1"
+    local offset="$2"
+    local file="$bundle_dir/glowroot/admin.json"
+    local target=$((_WT_PORT_GLOWROOT + offset))
+    [[ -f "$file" ]] || { echo "glowroot/admin.json not found, skipping."; return 0; }
+
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "jq not installed; set glowroot/admin.json .web.port=${target} manually."
+        return 0
+    fi
+
+    local current
+    current=$(jq -r '.web.port // empty' "$file")
+    if [[ "$current" == "$target" ]]; then
+        echo "glowroot/admin.json already at port ${target}, skipping."
+        return 0
+    fi
+    local tmp="${file}.tmp"
+    jq ".web.port = ${target}" "$file" > "$tmp" && mv "$tmp" "$file"
+}
+
+_wt_patch_portal_ext() {
+    # Survives rebuild. Preserve existing JDBC user/pass when present.
+    local bundle_dir="$1"
+    local offset="$2"
+    local db_name="$3"
+    local file="$bundle_dir/portal-ext.properties"
+    local http=$((_WT_PORT_TOMCAT_HTTP + offset))
+
+    touch "$file"
+
+    local jdbc_user jdbc_pass
+    jdbc_user=$(grep -E '^jdbc\.default\.username=' "$file" | tail -n 1 | cut -d= -f2-)
+    jdbc_pass=$(grep -E '^jdbc\.default\.password=' "$file" | tail -n 1 | cut -d= -f2-)
+    [[ -z "$jdbc_user" ]] && jdbc_user="sa"
+    [[ -z "$jdbc_pass" ]] && jdbc_pass="sa"
+
+    local key
+    for key in \
+        include-and-override \
+        portal.instance.inet.socket.address \
+        portal.instance.http.socket.address \
+        browser.launcher.url \
+        setup.wizard.enabled \
+        terms.of.use.required \
+        passwords.default.policy.change.required \
+        users.reminder.queries.enabled \
+        jdbc.default.driverClassName \
+        jdbc.default.url \
+        jdbc.default.username \
+        jdbc.default.password; do
+        _wt_remove_property "$file" "$key"
+    done
+
+    {
+        echo "include-and-override=portal-developer.properties"
+        echo "portal.instance.inet.socket.address=localhost:${http}"
+        echo "browser.launcher.url="
+        echo "setup.wizard.enabled=false"
+        echo "terms.of.use.required=false"
+        echo "passwords.default.policy.change.required=false"
+        echo "users.reminder.queries.enabled=false"
+        echo "jdbc.default.driverClassName=org.postgresql.Driver"
+        echo "jdbc.default.url=jdbc:postgresql://localhost:5432/${db_name}"
+        echo "jdbc.default.username=${jdbc_user}"
+        echo "jdbc.default.password=${jdbc_pass}"
+    } >> "$file"
+}
+
+_wt_create_database() {
+    local db_name="$1"
+    if ! command -v psql >/dev/null 2>&1; then
+        echo "psql CLI not available. Run manually:"
+        echo "  sudo -u postgres psql -c 'create database ${db_name} owner sa;'"
+        return 0
+    fi
+
+    sudo -u postgres psql -c "create database $db_name owner sa;"
+}
+
+_wt_clear_osgi_state() {
+    local bundle_dir="$1"
+    rm -rf "$bundle_dir/osgi/state"
+}
+
+_wt_print_summary() {
+    local worktree_dir="$1"
+    local bundle_dir="$2"
+    local offset="$3"
+    local db_name="$4"
+
+    local http=$((_WT_PORT_TOMCAT_HTTP + offset))
+    local shutdown=$((_WT_PORT_TOMCAT_SHUTDOWN + offset))
+    local ajp=$((_WT_PORT_TOMCAT_AJP + offset))
+    local https=$((_WT_PORT_TOMCAT_HTTPS + offset))
+    local jdwp=$((_WT_PORT_JDWP + offset))
+    local osgi=$((_WT_PORT_OSGI_CONSOLE + offset))
+    local es_http=$((_WT_PORT_ES_HTTP + offset))
+    local es_tx=$((_WT_PORT_ES_TRANSPORT + offset))
+    local glow=$((_WT_PORT_GLOWROOT + offset))
+    local arq=$((_WT_PORT_ARQUILLIAN + offset))
+    local dg=$((_WT_PORT_DATAGUARD + offset))
+
+    printf '\n=== Worktree Configuration ===\n'
+    printf 'Worktree:       %s\n' "$worktree_dir"
+    printf 'Bundle:         %s\n' "$bundle_dir"
+    printf 'Offset:         %s\n' "$offset"
+    printf 'Database:       %s\n\n' "$db_name"
+    printf 'Ports:\n'
+    printf '  Tomcat HTTP      %s\n' "$http"
+    printf '  Tomcat Shutdown  %s\n' "$shutdown"
+    printf '  Tomcat AJP       %s\n' "$ajp"
+    printf '  HTTPS Redirect   %s\n' "$https"
+    printf '  JDWP             %s\n' "$jdwp"
+    printf '  OSGi Console     %s\n' "$osgi"
+    printf '  ES HTTP          %s\n' "$es_http"
+    printf '  ES Transport     %s\n' "$es_tx"
+    printf '  Glowroot         %s\n' "$glow"
+    printf '  Arquillian       %s\n' "$arq"
+    printf '  DataGuard        %s\n\n' "$dg"
+    printf 'Liferay:    http://localhost:%s\n' "$http"
+    printf 'Glowroot:   http://localhost:%s\n' "$glow"
+}
+
+# ==========================================
+# Action: Configure ports for a single worktree
+# ==========================================
+_wt_configure_ports() {
+    local worktree_dir="$1"
+    local desired_offset="$2"
+
+    local bundle_dir
+    bundle_dir=$(_wt_resolve_bundle "$worktree_dir")
+    local tomcat_dir
+    tomcat_dir=$(_wt_find_tomcat "$bundle_dir")
+    if [[ -z "$tomcat_dir" ]]; then
+        echo "No tomcat-* directory under $bundle_dir. Run 'ant all' first."
+        return 1
+    fi
+
+    local offset_file="$bundle_dir/.worktree-port-offset"
+    local offset=""
+    if [[ -n "$desired_offset" ]]; then
+        if [[ "$desired_offset" == "0" ]]; then
+            echo "Offset 0 is reserved for the main worktree."
+            return 1
+        fi
+        offset="$desired_offset"
+    elif [[ -f "$offset_file" ]]; then
+        offset=$(cat "$offset_file")
+    else
+        offset=$(_wt_find_offset)
+        if [[ -z "$offset" ]]; then
+            echo "Could not find a free port offset (1..99)."
+            return 1
+        fi
+    fi
+    echo "$offset" > "$offset_file"
+
+    local dir_name
+    dir_name=$(basename "$worktree_dir")
+    local db_name
+    db_name=$(_wt_db_name "$dir_name")
+
+    _wt_patch_server_xml "$tomcat_dir" "$offset" || return 1
+    _wt_patch_setenv "$tomcat_dir" "$offset"
+    _wt_patch_developer_properties "$tomcat_dir" "$offset"
+    _wt_write_es_config "$bundle_dir" "$offset"
+    _wt_write_arquillian_config "$bundle_dir" "$offset"
+    _wt_write_dataguard_config "$bundle_dir" "$offset"
+    _wt_patch_glowroot "$bundle_dir" "$offset"
+    _wt_patch_portal_ext "$bundle_dir" "$offset" "$db_name"
+    _wt_create_database "$db_name"
+    _wt_clear_osgi_state "$bundle_dir"
+
+    _wt_print_summary "$worktree_dir" "$bundle_dir" "$offset" "$db_name"
+}
+
+# ==========================================
+# Action: New
+# ==========================================
+_wt_new() {
+    local branch=""
+    local dir_name=""
+    local offset=""
+    local reuse_branch=0
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dir-name)
+                dir_name="$2"
+                shift 2
+                ;;
+            --offset)
+                offset="$2"
+                shift 2
+                ;;
+            --reuse)
+                reuse_branch=1
+                shift
+                ;;
+            -*)
+                echo "Unknown flag: $1"
+                return 1
+                ;;
+            *)
+                [[ -z "$branch" ]] && branch="$1"
+                shift
+                ;;
+        esac
+    done
+
+    if [[ -z "$branch" ]]; then
+        echo "Usage: wtcli new <BRANCH> [--dir-name DIR] [--offset N] [--reuse]"
+        return 1
+    fi
+
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+    if [[ -z "$repo_root" ]]; then
+        echo "Not inside a Git repository."
+        return 1
+    fi
+    local repo_basename
+    repo_basename=$(basename "$repo_root")
+    [[ -z "$dir_name" ]] && dir_name="${repo_basename}-${branch}"
+    local worktree_dir
+    worktree_dir="$(dirname "$repo_root")/${dir_name}"
+
+    # 1. Create worktree
+    if [[ -d "$worktree_dir" ]]; then
+        echo "Worktree directory already exists: $worktree_dir — skipping creation."
+    elif (( reuse_branch )); then
+        git worktree add "$worktree_dir" "$branch" || return 1
+    else
+        if ! git worktree add -b "$branch" "$worktree_dir" master; then
+            echo
+            echo "Branch creation may have failed (already exists?)."
+            echo "Retry with:  wtcli new $branch --reuse"
+            echo "Or pick a new branch name with --dir-name and a fresh branch."
+            return 1
+        fi
+    fi
+
+    # 2. Configure bundle directory
+    local app_props="$worktree_dir/app.server.$(whoami).properties"
+    if [[ ! -f "$app_props" ]] && [ -z "$LIFERAY_BASE" ]; then
+        echo "Setting bundle dir to ${project.dir}/bundle"
+        echo 'app.server.parent.dir=${project.dir}/bundle' > "$app_props"
+    elif [[ ! -f "$app_props" ]]; then
+        echo "Setting bundle dir to $LIFERAY_BASE/bundle"
+        echo "app.server.parent.dir=$LIFERAY_BASE/bundle" > "$app_props"
+    fi
+
+    # 3. Build (only if no bundle yet)
+    local bundle_dir
+    bundle_dir=$(_wt_resolve_bundle "$worktree_dir")
+    local tomcat_dir
+    tomcat_dir=$(_wt_find_tomcat "$bundle_dir")
+    if [[ -z "$tomcat_dir" ]]; then
+        echo "No bundle found in dir $tomcat_dir — running 'ant all' in $worktree_dir"
+        if ! (cd "$worktree_dir" && ANT_OPTS="-Xmx2560m" ant setup-profile-dxp && ANT_OPTS="-Xmx2560m" ant all); then
+            echo "ant all failed."
+            return 1
+        fi
+    else
+        echo "Existing bundle found at $bundle_dir — skipping ant all."
+    fi
+
+    # 4. Configure ports
+    _wt_configure_ports "$worktree_dir" "$offset" || return 1
+
+    # 5. Tell the user how to start
+    tomcat_dir=$(_wt_find_tomcat "$(_wt_resolve_bundle "$worktree_dir")")
+    echo
+    echo "Start with:  ${tomcat_dir}/bin/catalina.sh start"
+    echo "Tail log:    tail -f ${tomcat_dir}/logs/catalina.out"
+}
+
+# ==========================================
+# Action: Status
+# ==========================================
+_wt_status() {
+    local worktree_dir="${1:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+    if [[ -z "$worktree_dir" ]]; then
+        echo "Not inside a Git repository and no worktree path provided."
+        return 1
+    fi
+    local bundle_dir
+    bundle_dir=$(_wt_resolve_bundle "$worktree_dir")
+    local offset_file="$bundle_dir/.worktree-port-offset"
+    if [[ ! -f "$offset_file" ]]; then
+        echo "No .worktree-port-offset in $bundle_dir."
+        return 1
+    fi
+    local offset
+    offset=$(cat "$offset_file")
+    local db_name
+    db_name=$(_wt_db_name "$(basename "$worktree_dir")")
+    _wt_print_summary "$worktree_dir" "$bundle_dir" "$offset" "$db_name"
+}
+
+# ==========================================
+# Action: List
+# ==========================================
+_wt_list_row() {
+    local worktree_path="$1"
+    local running_bases="$2"
+    local dir_name
+    dir_name=$(basename "$worktree_path")
+    local bundle_dir
+    bundle_dir=$(_wt_resolve_bundle "$worktree_path")
+    local tomcat_dir
+    tomcat_dir=$(_wt_find_tomcat "$bundle_dir")
+
+    local offset="(none)"
+    local port="-"
+    local db="-"
+    local status="NO TOMCAT"
+
+    if [[ -n "$tomcat_dir" ]]; then
+        if [[ -f "$bundle_dir/.worktree-port-offset" ]]; then
+            offset=$(cat "$bundle_dir/.worktree-port-offset")
+            port=$((_WT_PORT_TOMCAT_HTTP + offset))
+            db=$(_wt_db_name "$dir_name")
+        else
+            offset="?"
+        fi
+        if echo "$running_bases" | grep -qFx "$tomcat_dir"; then
+            status="RUNNING"
+        else
+            status="STOPPED"
+        fi
+    fi
+    printf '%-40s %-8s %-10s %-8s %s\n' "$dir_name" "$port" "$status" "$offset" "$db"
+}
+
+_wt_list() {
+    local running_bases
+    running_bases=$(ps -eo args 2>/dev/null \
+        | grep --only-matching '\-Dcatalina\.base=[^ ]*' \
+        | sed 's/-Dcatalina.base=//')
+
+    printf '%-40s %-8s %-10s %-8s %s\n' "Worktree" "Port" "Status" "Offset" "Database"
+    printf '%-40s %-8s %-10s %-8s %s\n' "----------------------------------------" "--------" "----------" "--------" "------------------------"
+
+    local current_path=""
+    local line
+    while IFS= read -r line; do
+        if [[ "$line" == worktree\ * ]]; then
+            current_path="${line#worktree }"
+        elif [[ -z "$line" && -n "$current_path" ]]; then
+            _wt_list_row "$current_path" "$running_bases"
+            current_path=""
+        fi
+    done < <(git worktree list --porcelain 2>/dev/null; printf '\n')
+
+    [[ -n "$current_path" ]] && _wt_list_row "$current_path" "$running_bases"
+}
+
+# ==========================================
+# Action: Cleanup
+# ==========================================
+_wt_cleanup() {
+    local worktree_dir="${1:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+    if [[ -z "$worktree_dir" ]]; then
+        echo "Not inside a Git repository and no worktree path provided."
+        return 1
+    fi
+
+    local abs_path
+    abs_path=$(cd "$worktree_dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)
+    [[ -z "$abs_path" ]] && abs_path="$worktree_dir"
+
+    local dir_name
+    dir_name=$(basename "$abs_path")
+    if [[ "$dir_name" == "liferay-portal" ]]; then
+        echo "Refusing to clean up the main 'liferay-portal' worktree."
+        return 1
+    fi
+
+    local bundle_dir
+    bundle_dir=$(_wt_resolve_bundle "$abs_path")
+    local tomcat_dir
+    tomcat_dir=$(_wt_find_tomcat "$bundle_dir")
+    local db_name
+    db_name=$(_wt_db_name "$dir_name")
+    local branch
+    branch=$(_wt_worktree_branch "$abs_path")
+
+    echo "About to clean up worktree:"
+    echo "  Path:     $abs_path"
+    echo "  Branch:   ${branch:-<unknown>}"
+    echo "  Database: $db_name"
+    echo "  Tomcat:   ${tomcat_dir:-<none>}"
+    read -r -p "Proceed? [y/N] " confirm
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        echo "Aborted."
+        return 0
+    fi
+
+    # 1. Stop tomcat
+    if [[ -n "$tomcat_dir" ]]; then
+        "$tomcat_dir/bin/catalina.sh" stop
+    fi
+
+    # 2. Drop database
+    if command -v psql >/dev/null 2>&1; then
+        sudo -u postgres psql -c "drop database $db_name with (force);"
+    else
+        echo "psql CLI not available. Run manually:"
+        echo "  sudo -u postgres psql -c 'drop database ${db_name} with (force);'"
+    fi
+
+    # 3. Remove worktree
+    if ! git worktree remove "$abs_path"; then
+        echo "git worktree remove failed."
+        return 1
+    fi
+
+    # 4. Optionally delete branch
+    if [[ -n "$branch" ]]; then
+        read -r -p "Also delete local branch '$branch'? [y/N] " del
+        if [[ "$del" == "y" || "$del" == "Y" ]]; then
+            git branch --delete --force "$branch"
+        fi
+    fi
+}
+
+# ==========================================
+# Main CLI Entry Point
+# ==========================================
+wtcli() {
+    local cmd="$1"
+    if [[ -z "$cmd" || "$cmd" == "-h" || "$cmd" == "--help" ]]; then
+        cat <<'EOF'
+Usage: wtcli <command> [args...]
+
+Commands:
+  new <BRANCH> [--dir-name DIR] [--offset N] [--reuse]
+        Create a worktree, build (if needed), and configure ports.
+        --reuse           Reuse an existing branch instead of creating one.
+        --dir-name DIR    Override the worktree directory name.
+        --offset N        Force a specific port offset (rejects 0).
+
+  configure [WORKTREE] [--offset N]
+        Re-apply port configuration after a rebuild. Defaults to cwd's worktree.
+
+  status [WORKTREE]
+        Print the configured ports for one worktree.
+
+  list
+        Summary table of every worktree (port, running status, offset, db).
+
+  cleanup [WORKTREE]
+        Stop tomcat, drop the database, remove the worktree, optionally
+        delete the branch. Refuses to touch the main 'liferay-portal' worktree.
+EOF
+        return 0
+    fi
+    shift
+
+    case "$cmd" in
+        new)
+            _wt_new "$@"
+            ;;
+        configure)
+            local target="" off=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --offset) off="$2"; shift 2 ;;
+                    -*) echo "Unknown flag: $1"; return 1 ;;
+                    *) [[ -z "$target" ]] && target="$1"; shift ;;
+                esac
+            done
+            [[ -z "$target" ]] && target=$(git rev-parse --show-toplevel 2>/dev/null)
+            _wt_configure_ports "$target" "$off"
+            ;;
+        status)
+            _wt_status "$@"
+            ;;
+        list)
+            _wt_list "$@"
+            ;;
+        cleanup)
+            _wt_cleanup "$@"
+            ;;
+        *)
+            echo "Unknown command: $cmd"
+            echo "Type 'wtcli --help' for usage."
+            return 1
+            ;;
+    esac
+}
+
+# ==========================================
+# Auto-Completion for wtcli
+# ==========================================
+_wtcli_completions() {
+    local cur prev cmd
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    local commands="new configure status list cleanup"
+
+    if (( COMP_CWORD == 1 )); then
+        COMPREPLY=( $(compgen -W "$commands -h --help" -- "$cur") )
+        return 0
+    fi
+
+    cmd="${COMP_WORDS[1]}"
+    case "$cmd" in
+        new)
+            if [[ "$prev" == "--dir-name" || "$prev" == "--offset" ]]; then
+                COMPREPLY=()
+            else
+                COMPREPLY=( $(compgen -W "--dir-name --offset --reuse" -- "$cur") )
+            fi
+            ;;
+        configure)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=( $(compgen -W "--offset" -- "$cur") )
+            else
+                COMPREPLY=( $(compgen -d -- "$cur") )
+            fi
+            ;;
+        status|cleanup)
+            COMPREPLY=( $(compgen -d -- "$cur") )
+            ;;
+        *)
+            COMPREPLY=()
+            ;;
+    esac
+}
+
+complete -F _wtcli_completions wtcli
