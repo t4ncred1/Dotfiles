@@ -27,3 +27,11 @@ export PAGER=/usr/bin/less
 gradlew() {
     $(git rev-parse --show-toplevel)/gradlew "$@"
 }
+
+checkport() {
+    if [[ -z $1 ]]; then
+        sudo ss -lptn "sport = :$1"
+    else
+        sudo ss -lptn "sport = :8080"
+    fi
+}
