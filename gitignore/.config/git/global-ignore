@@ -1,2 +1,4 @@
 # Emacs
 /.dir-locals.el
+
+**/.claude/settings.local.json
