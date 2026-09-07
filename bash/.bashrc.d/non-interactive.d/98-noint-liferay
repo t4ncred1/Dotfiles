@@ -77,13 +77,13 @@ _sfc() {
         )
         local ant_exit_code=$?
         if [ $ant_exit_code -ne 0 ]; then
-            _notify_task "${EE_PREFIX}Ant format-source-current-branch" "Build failed."
+            _notify_task "${PREFIX}Ant format-source-current-branch" "Build failed."
         else
-            _notify_task "${EE_PREFIX}Ant format-source-current-branch" "Build completed!"
+            _notify_task "${PREFIX}Ant format-source-current-branch" "Build completed!"
         fi
         return $ant_exit_code
     else
-        _notify_task "${EE_PREFIX}Ant format-source-current-branch Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        _notify_task "${PREFIX}Ant format-source-current-branch Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
@@ -96,13 +96,13 @@ _sfl() {
         )
         local ant_exit_code=$?
         if [ $ant_exit_code -ne 0 ]; then
-            _notify_task "${EE_PREFIX}Ant format-source-local-changes" "Build failed."
+            _notify_task "${PREFIX}Ant format-source-local-changes" "Build failed."
         else
-            _notify_task "${EE_PREFIX}Ant format-source-local-changes" "Build completed!"
+            _notify_task "${PREFIX}Ant format-source-local-changes" "Build completed!"
         fi
         return $ant_exit_code
     else
-        _notify_task "${EE_PREFIX}Ant format-source-local-changes Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        _notify_task "${PREFIX}Ant format-source-local-changes Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
@@ -115,13 +115,13 @@ _buildPortalService() {
         )
         local build_exit_code=$?
         if [ $build_exit_code -ne 0 ]; then
-            _notify_task "${EE_PREFIX}Build portal service" "Failed."
+            _notify_task "${PREFIX}Build portal service" "Failed."
         else
-            _notify_task "${EE_PREFIX}Build portal service" "Completed!"
+            _notify_task "${PREFIX}Build portal service" "Completed!"
         fi
         return $build_exit_code
     else
-        _notify_task "${EE_PREFIX}Build portal service" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        _notify_task "${PREFIX}Build portal service" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
@@ -156,13 +156,13 @@ _buildLanguage() {
         )
         local build_exit_code=$?
         if [ $build_exit_code -ne 0 ]; then
-            _notify_task "${EE_PREFIX}BuildLanguage" "Failed."
+            _notify_task "${PREFIX}BuildLanguage" "Failed."
         else
-            _notify_task "${EE_PREFIX}BuildLanguage" "Completed!"
+            _notify_task "${PREFIX}BuildLanguage" "Completed!"
         fi
         return $build_exit_code
     else
-        _notify_task "${EE_PREFIX}BuildLanguage" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        _notify_task "${PREFIX}BuildLanguage" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
@@ -175,13 +175,13 @@ _ij() {
         )
         local build_exit_code=$?
         if [ $build_exit_code -ne 0 ]; then
-            _notify_task "${EE_PREFIX}IJ" "Failed."
+            _notify_task "${PREFIX}IJ" "Failed."
         else
-            _notify_task "${EE_PREFIX}IJ" "Completed!"
+            _notify_task "${PREFIX}IJ" "Completed!"
         fi
         return $build_exit_code
     else
-        _notify_task "${EE_PREFIX}IJ" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        _notify_task "${PREFIX}IJ" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
@@ -194,13 +194,13 @@ _rebuild() {
         )
         local ant_exit_code=$?
         if [ $ant_exit_code -ne 0 ]; then
-            _notify_task "${EE_PREFIX}Ant all" "Build failed."
+            _notify_task "${PREFIX}Ant all" "Build failed."
         else
-            _notify_task "${EE_PREFIX}Ant all" "Build completed!"
+            _notify_task "${PREFIX}Ant all" "Build completed!"
         fi
         return $ant_exit_code
     else
-        _notify_task "${EE_PREFIX}Ant all Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        _notify_task "${PREFIX}Ant all Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
@@ -209,20 +209,28 @@ _rebuildFull() {
     if [[ -n "$CURRENT_LIFERAY_PRJ" ]]; then
         (
             cd "$CURRENT_LIFERAY_PRJ" &&
-            git clean -dfx -e "build.$(whoami).properties" -e "app.server.$(whoami).properties" -e "test.$(whoami).properties" &&
+            git clean -dfx -e ".claude/" -e "build.$(whoami).properties" -e "app.server.$(whoami).properties" -e "test.$(whoami).properties" &&
             ant setup-sdk && ant setup-profile-dxp && ij && ant all && ij
         )
         local ant_exit_code=$?
         if [ $ant_exit_code -ne 0 ]; then
-            _notify_task "${EE_PREFIX}Ant all" "Build failed."
+            _notify_task "${PREFIX}Ant all" "Build failed."
         else
-            _notify_task "${EE_PREFIX}Ant all" "Build completed!"
+            _notify_task "${PREFIX}Ant all" "Build completed!"
         fi
         return $ant_exit_code
     else
-        _notify_task "${EE_PREFIX}Ant all Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        _notify_task "${PREFIX}Ant all Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
+}
+
+_gw() {
+    blade gw "$@"
+}
+
+_gwtest() {
+    blade gw test "$@"
 }
 
 _testIntegration() {
@@ -231,7 +239,7 @@ _testIntegration() {
 
 _tomclear() {
     if [[ -z "$CURRENT_LIFERAY_HOME" ]]; then
-        _notify_task "${EE_PREFIX}Clear tomcat failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
+        _notify_task "${PREFIX}Clear tomcat failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
         return 1
     fi
 
@@ -281,7 +289,7 @@ _tomclearfull() {
 
 _tominit() {
     _tomstop
-    _tomclearfull && _recreatedb && _tomstart
+    _tomclearfull && _recreatedb "$@" && _tomstart
 }
 
 _tomlog() {
@@ -312,7 +320,7 @@ _tomstart() {
             $PAGER "$tomcat_log"
         fi
     else
-        _notify_task "${EE_PREFIX}Start failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
+        _notify_task "${PREFIX}Start failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
         return 1
     fi
 }
@@ -321,7 +329,7 @@ _tomstop() {
     if [[ -n "$CURRENT_LIFERAY_HOME" ]]; then
         "$CURRENT_LIFERAY_HOME/tomcat/bin/catalina.sh" stop
     else
-        _notify_task "${EE_PREFIX}Stop failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
+        _notify_task "${PREFIX}Stop failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
         return 1
     fi
 }
@@ -334,21 +342,39 @@ lifcli() {
     local CURRENT_LIFERAY_PRJ="$LIFERAY_PRJ"
     local CURRENT_LIFERAY_HOME="$LIFERAY_HOME"
     local CURRENT_DB_NAME="lportal"
-    local EE_PREFIX=""
+    local PREFIX=""
 
     # 1. Parse global flags
     while [[ $# -gt 0 && "$1" == -* ]]; do
         case "$1" in
-            -e|--ee)
-                # Override variables for EE mode
+            -e|--env)
+                if [[ -z "$2" || "$2" == -* ]]; then
+                    echo "Error: $1 requires a name argument"
+                    return 1
+                fi
+                if [[ -z "$LIFERAY_BASE" ]]; then
+                    echo "Error: LIFERAY_BASE env variable must be set to use $1"
+                    return 1
+                fi
+                CURRENT_LIFERAY_PRJ="$LIFERAY_BASE/liferay-$2"
+                CURRENT_LIFERAY_HOME="$LIFERAY_BASE/bundles/liferay-$2-bundle"
+                CURRENT_DB_NAME="lportal$2"
+                PREFIX="${2^^} - "
+                shift 2
+                ;;
+            --ee)
                 CURRENT_LIFERAY_PRJ="$LIFERAY_PRJ_EE"
                 CURRENT_LIFERAY_HOME="$LIFERAY_HOME_EE"
                 CURRENT_DB_NAME="lportalee"
-                EE_PREFIX="EE - "
+                PREFIX="EE - "
                 shift
                 ;;
             -h|--help)
-                echo "Usage: lifcli [-e|--ee] <command> [args...]"
+                echo "Usage: lifcli [--ee | -e <name> | --env <name>] <command> [args...]"
+                echo "  -e <name> | --env <name>  Resolves against \$LIFERAY_BASE to:"
+                echo "                              source: \$LIFERAY_BASE/liferay-<name>"
+                echo "                              bundle: \$LIFERAY_BASE/liferay-<name>-bundle"
+                echo "                              db:     lportal<name>"
                 echo "Commands: baseline, deploy, deploya, dropdb, recreatedb, sf, sfc, sfl, buildPortalService, buildRest, buildService, buildLanguage, lifIj, rebuild, rebuildFull, testIntegration, tomclear, tomclearfull, tominit, tomlog, tomrestart, tomstart, tomstop"
                 return 0
                 ;;
@@ -371,12 +397,19 @@ lifcli() {
     # Shift past the command name so "$@" only contains command-specific arguments
     shift
 
+    echo -e "Command:\t$cmd"
+    echo -e "Liferay source:\t$CURRENT_LIFERAY_PRJ"
+    echo -e "Liferay home:\t$CURRENT_LIFERAY_HOME"
+    echo -e "Liferay db:\t$CURRENT_DB_NAME"
+
     # 3. Explicit command routing
     case "$cmd" in
         baseline)           _baseline "$@" ;;
         deploy)             _deploy "$@" ;;
         deploya)            _deploya "$@" ;;
         dropdb)             _dropdb "$@" ;;
+        gw)                 _gw "$@" ;;
+        gwtest)             _gwtest "$@" ;;
         recreatedb)         _recreatedb "$@" ;;
         sf)                 _sf "$@" ;;
         sfc)                _sfc "$@" ;;
@@ -416,8 +449,8 @@ _lifcli_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Define our lists of valid inputs
-    local commands="baseline deploy deploya dropdb recreatedb sf sfc sfl buildPortalService buildRest buildService buildLanguage lifIj rebuild rebuildFull testIntegration tomclear tomclearfull tominit tomlog tomrestart tomstart tomstop"
-    local global_flags="-e --ee -h --help"
+    local commands="baseline deploy deploya dropdb recreatedb sf sfc sfl buildPortalService buildRest buildService buildLanguage lifIj rebuild rebuildFull gwtest testIntegration tomclear tomclearfull tominit tomlog tomrestart tomstart tomstop"
+    local global_flags="-e --env --ee -h --help"
 
     # 1. Figure out if the user has already typed a subcommand
     cmd=""
@@ -432,6 +465,21 @@ _lifcli_completions() {
 
     # 2. If no subcommand is found yet, suggest commands or global flags
     if [[ -z "$cmd" ]]; then
+        # If completing the value after -e/--env, suggest worktree names from $LIFERAY_BASE
+        if [[ "$prev" == "-e" || "$prev" == "--env" ]]; then
+            if [[ -n "$LIFERAY_BASE" && -d "$LIFERAY_BASE" ]]; then
+                local names=()
+                local dir base
+                for dir in "$LIFERAY_BASE"/liferay-*; do
+                    [[ -d "$dir" ]] || continue
+                    base="${dir##*/}"
+                    [[ "$base" == *-bundle ]] && continue
+                    names+=( "${base#liferay-}" )
+                done
+                COMPREPLY=( $(compgen -W "${names[*]}" -- "$cur") )
+            fi
+            return 0
+        fi
         if [[ "$cur" == -* ]]; then
             # If typing a flag, only suggest global flags
             COMPREPLY=( $(compgen -W "$global_flags" -- "$cur") )
