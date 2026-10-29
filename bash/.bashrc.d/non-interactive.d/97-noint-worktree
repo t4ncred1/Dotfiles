@@ -43,6 +43,7 @@ _wt_db_name() {
     # liferay-portal-LPD-12345 -> lportallpd_12345
     # liferay-portal-hotfix    -> lportalhotfix
     # liferay-portal           -> lportal (main)
+    # liferay-ee-claude1       -> lportalee_claude1
     local dir_name="$1"
     if [[ "$dir_name" == "liferay-portal" ]]; then
         echo "lportal"
@@ -69,13 +70,23 @@ _wt_resolve_bundle() {
         parent_dir="${parent_dir//\$\{project.dir\}/$worktree_root}"
     fi
     [[ -z "$parent_dir" ]] && parent_dir="$worktree_root/bundle"
-    echo "$parent_dir"
+    echo "${parent_dir%/}"
 }
 
 _wt_find_tomcat() {
     local bundle_dir="$1"
     [[ -d "$bundle_dir" ]] || return 0
-    find "$bundle_dir" -maxdepth 1 -type d -name 'tomcat-*' 2>/dev/null | head -n 1
+    # Highest version wins, matching .claude/rules/tomcat.md.
+    find "$bundle_dir" -maxdepth 1 -type d -name 'tomcat-*' 2>/dev/null | sort -V | tail -n 1
+}
+
+_wt_is_main_worktree() {
+    # The main worktree owns the repository; linked worktrees point into it.
+    local worktree_dir="$1"
+    local git_dir common_dir
+    git_dir=$(cd "$worktree_dir" 2>/dev/null && git rev-parse --absolute-git-dir 2>/dev/null)
+    common_dir=$(cd "$worktree_dir" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" && pwd -P)
+    [[ -n "$git_dir" && "$git_dir" == "$common_dir" ]]
 }
 
 _wt_offset_ports_free() {
@@ -578,11 +589,11 @@ _wt_new() {
     # 2. Configure bundle directory
     local app_props="$worktree_dir/app.server.$(whoami).properties"
     if [[ ! -f "$app_props" ]] && [ -z "$LIFERAY_BASE" ]; then
-        echo "Setting bundle dir to ${project.dir}/bundle"
+        echo 'Setting bundle dir to ${project.dir}/bundle'
         echo 'app.server.parent.dir=${project.dir}/bundle' > "$app_props"
     elif [[ ! -f "$app_props" ]]; then
-        echo "Setting bundle dir to $LIFERAY_BASE/bundle"
-        echo "app.server.parent.dir=$LIFERAY_BASE/bundle" > "$app_props"
+        echo "Setting bundle dir to $LIFERAY_BASE/bundles/${dir_name}-bundle"
+        echo "app.server.parent.dir=$LIFERAY_BASE/bundles/${dir_name}-bundle" > "$app_props"
     fi
 
     # 3. Build (only if no bundle yet)
@@ -707,8 +718,8 @@ _wt_cleanup() {
 
     local dir_name
     dir_name=$(basename "$abs_path")
-    if [[ "$dir_name" == "liferay-portal" ]]; then
-        echo "Refusing to clean up the main 'liferay-portal' worktree."
+    if _wt_is_main_worktree "$abs_path"; then
+        echo "Refusing to clean up the main '$dir_name' worktree."
         return 1
     fi
 
@@ -788,7 +799,8 @@ Commands:
 
   cleanup [WORKTREE]
         Stop tomcat, drop the database, remove the worktree, optionally
-        delete the branch. Refuses to touch the main 'liferay-portal' worktree.
+        delete the branch. Refuses to touch a main worktree (liferay-portal,
+        liferay-ee).
 EOF
         return 0
     fi

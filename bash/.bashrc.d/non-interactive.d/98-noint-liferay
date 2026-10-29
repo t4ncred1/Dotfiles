@@ -385,7 +385,7 @@ lifcli() {
                 fi
                 CURRENT_LIFERAY_PRJ="$LIFERAY_BASE/liferay-$2"
                 CURRENT_LIFERAY_HOME="$LIFERAY_BASE/bundles/liferay-$2-bundle"
-                CURRENT_DB_NAME="lportal$2"
+                CURRENT_DB_NAME="$(_wt_db_name "liferay-$2")"
                 PREFIX="${2^^} - "
                 shift 2
                 ;;
@@ -400,8 +400,9 @@ lifcli() {
                 echo "Usage: lifcli [--ee | -e <name> | --env <name>] <command> [args...]"
                 echo "  -e <name> | --env <name>  Resolves against \$LIFERAY_BASE to:"
                 echo "                              source: \$LIFERAY_BASE/liferay-<name>"
-                echo "                              bundle: \$LIFERAY_BASE/liferay-<name>-bundle"
-                echo "                              db:     lportal<name>"
+                echo "                              bundle: \$LIFERAY_BASE/bundles/liferay-<name>-bundle"
+                echo "                              db:     lportal<name> (non-alphanumerics -> _, as wtcli)"
+                echo "  e.g. -e claude1, -e ee, -e ee-claude1"
                 echo "Commands: baseline, deploy, deploya, dropdb, recreatedb, sf, sfc, sfl, buildPortalService, buildRest, buildService, buildLanguage, lifIj, rebuild, rebuildFull, testIntegration, tomclear, tomclearfull, tominit, tomlog, tomrestart, tomstart, tomstop"
                 return 0
                 ;;
