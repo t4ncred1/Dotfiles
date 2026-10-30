@@ -320,15 +320,28 @@ _wt_resolve_family() {
 _wt_fetch_refs() {
     # Fetch each "<remote>/<branch>" ref so comparisons reflect the remotes.
     # Refs that are not remote-tracking (local branches, SHAs) are skipped.
+    # Retries cover the SSH agent briefly offering no key, which GitHub
+    # answers with "Permission denied (publickey)"; only the last attempt's
+    # error is shown, and a failure only leaves that ref as last fetched.
     local repo_dir="$1"
     shift
-    local ref remote
+    local ref remote attempt error fetched
     for ref in "$@"; do
         remote="${ref%%/*}"
         [[ "$remote" == "$ref" ]] && continue
         git -C "$repo_dir" remote get-url "$remote" >/dev/null 2>&1 || continue
-        git -C "$repo_dir" fetch --quiet "$remote" "${ref#*/}" \
-            || echo "Warning: could not fetch $ref."
+        fetched=0
+        for attempt in 1 2 3; do
+            if error=$(git -C "$repo_dir" fetch --quiet "$remote" "${ref#*/}" 2>&1); then
+                fetched=1
+                break
+            fi
+            (( attempt < 3 )) && sleep 2
+        done
+        if (( ! fetched )); then
+            echo "$error"
+            echo "Warning: could not fetch $ref after 3 attempts; using the last fetched state."
+        fi
     done
 }
 
