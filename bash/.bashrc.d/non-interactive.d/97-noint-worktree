@@ -87,11 +87,37 @@ _wt_resolve_bundle() {
     echo "${parent_dir%/}"
 }
 
+_wt_tomcat_version() {
+    # The Tomcat version the checkout builds into: app.server.tomcat.version,
+    # per-user properties first.
+    local worktree_dir="$1"
+    local file version
+    for file in "$worktree_dir/app.server.$(whoami).properties" "$worktree_dir/app.server.properties"; do
+        [[ -f "$file" ]] || continue
+        version=$(grep -E '^[[:space:]]*app\.server\.tomcat\.version=' "$file" | tail -n 1 | cut -d= -f2- | tr -d '[:space:]')
+        if [[ -n "$version" ]]; then
+            echo "$version"
+            return 0
+        fi
+    done
+}
+
 _wt_find_tomcat() {
-    # Prefer the `tomcat` symlink that `ant all` points at the Tomcat it just
-    # unpacked; otherwise the highest version wins, as in .claude/rules/tomcat.md.
+    # With a worktree, the tomcat-<app.server.tomcat.version> its build
+    # unpacks: `ant all` leaves older tomcat-* dirs and the `tomcat` symlink
+    # behind, and a release branch can need an older version than the newest
+    # dir. Otherwise the `tomcat` symlink, else the highest version.
     local bundle_dir="$1"
+    local worktree_dir="$2"
     [[ -d "$bundle_dir" ]] || return 0
+    if [[ -n "$worktree_dir" ]]; then
+        local version
+        version=$(_wt_tomcat_version "$worktree_dir")
+        if [[ -n "$version" && -d "$bundle_dir/tomcat-$version" ]]; then
+            readlink -f "$bundle_dir/tomcat-$version"
+            return 0
+        fi
+    fi
     if [[ -L "$bundle_dir/tomcat" && -d "$bundle_dir/tomcat" ]]; then
         readlink -f "$bundle_dir/tomcat"
         return 0
@@ -769,10 +795,14 @@ _wt_configure_ports() {
     local bundle_dir
     bundle_dir=$(_wt_resolve_bundle "$worktree_dir")
     local tomcat_dir
-    tomcat_dir=$(_wt_find_tomcat "$bundle_dir")
+    tomcat_dir=$(_wt_find_tomcat "$bundle_dir" "$worktree_dir")
     if [[ -z "$tomcat_dir" ]]; then
         echo "No tomcat-* directory under $bundle_dir. Run 'ant all' first."
         return 1
+    fi
+    # lifcli starts <bundle>/tomcat: keep that symlink on the built Tomcat.
+    if [[ -L "$bundle_dir/tomcat" || ! -e "$bundle_dir/tomcat" ]]; then
+        ln -sfn "$(basename "$tomcat_dir")" "$bundle_dir/tomcat"
     fi
 
     local offset_file="$bundle_dir/.worktree-port-offset"
@@ -1093,7 +1123,7 @@ _wt_list_row() {
     local bundle_dir
     bundle_dir=$(_wt_resolve_bundle "$worktree_path")
     local tomcat_dir
-    tomcat_dir=$(_wt_find_tomcat "$bundle_dir")
+    tomcat_dir=$(_wt_find_tomcat "$bundle_dir" "$worktree_path")
 
     local offset="(none)"
     local port="-"
@@ -1208,7 +1238,7 @@ _wt_cleanup() {
     local bundle_dir
     bundle_dir=$(_wt_resolve_bundle "$abs_path")
     local tomcat_dir
-    tomcat_dir=$(_wt_find_tomcat "$bundle_dir")
+    tomcat_dir=$(_wt_find_tomcat "$bundle_dir" "$abs_path")
     local db_name
     db_name=$(_wt_db_name "$dir_name")
     local branch
