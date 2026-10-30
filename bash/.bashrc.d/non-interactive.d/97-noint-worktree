@@ -588,7 +588,7 @@ _wt_write_init_local_gradle() {
     # - testIntegrationTomcat.portNumber  -> HTTP (BaseAppServerTask.isReachable)
     # - liferay.arquillian.port sysprop   -> forwarded to test JVM by
     #   TestIntegrationPlugin so the JUnit bridge socket connects correctly.
-    # Regenerated on every configure; not committed (see _wt_exclude_init_local_gradle).
+    # Regenerated on every configure; not committed (see _wt_exclude_local_files).
     local worktree_dir="$1"
     local offset="$2"
     local file="$worktree_dir/init-local.gradle"
@@ -617,25 +617,25 @@ allprojects {
 EOF
 }
 
-_wt_exclude_init_local_gradle() {
-    # Idempotently adds init-local.gradle to the worktree's effective
-    # info/exclude (which is the common gitdir's info/exclude when this is a
-    # linked worktree, so `git status` stays clean across all worktrees).
+_wt_exclude_local_files() {
+    # Idempotently adds every per-worktree file (_WT_LOCAL_FILES) to the
+    # worktree's effective info/exclude (which is the common gitdir's
+    # info/exclude when this is a linked worktree, so `git status` stays clean
+    # across all worktrees). Not every branch's .gitignore covers them all,
+    # e.g. CLAUDE.local.md on older release branches.
     local worktree_dir="$1"
     local common_dir
-    common_dir=$(cd "$worktree_dir" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null)
+    common_dir=$(git -C "$worktree_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
     [[ -z "$common_dir" ]] && return 0
-    if [[ "$common_dir" != /* ]]; then
-        local gitdir
-        gitdir=$(cd "$worktree_dir" 2>/dev/null && git rev-parse --git-dir 2>/dev/null)
-        common_dir="$gitdir/$common_dir"
-    fi
     local exclude_file="$common_dir/info/exclude"
     mkdir -p "$common_dir/info"
     touch "$exclude_file"
-    if ! grep -qFx 'init-local.gradle' "$exclude_file"; then
-        printf '\n# Added by wtcli — local Gradle init script\ninit-local.gradle\n' >> "$exclude_file"
-    fi
+    local file
+    for file in "${_WT_LOCAL_FILES[@]}"; do
+        if ! grep -qFx "/${file}" "$exclude_file" && ! grep -qFx "${file}" "$exclude_file"; then
+            printf '\n# Added by wtcli — per-worktree file\n/%s\n' "$file" >> "$exclude_file"
+        fi
+    done
 }
 
 _wt_patch_portal_ext() {
@@ -805,7 +805,7 @@ _wt_configure_ports() {
     _wt_patch_portal_ext "$bundle_dir" "$offset" "$db_name"
     _wt_patch_test_user_properties "$worktree_dir" "$offset"
     _wt_write_init_local_gradle "$worktree_dir" "$offset"
-    _wt_exclude_init_local_gradle "$worktree_dir"
+    _wt_exclude_local_files "$worktree_dir"
     (( skip_db )) || _wt_create_database "$db_name"
     _wt_clear_osgi_state "$bundle_dir"
 
