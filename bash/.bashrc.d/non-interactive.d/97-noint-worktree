@@ -3,16 +3,18 @@
 #
 # 97-noint-worktree
 #
-# Liferay worktree lifecycle: create, configure ports, list, status, cleanup.
-# Mirrors .claude/skills/worktree-setup/SKILL.md.
+# Liferay worktree lifecycle. Two templates (liferay-portal, liferay-ee) stay
+# built and are never used for feature work; every feature is a linked
+# worktree seeded from its template, with its own bundle, database, and port
+# offset: create, configure ports, check alignment, list, status, cleanup.
 #
 
 # ==========================================
 # Constants — service port defaults
 # ==========================================
-# Auto-discovery (_wt_find_offset) starts at 1 to avoid colliding with the
-# main worktree, which conventionally uses offset 0. Pass `--offset 0`
-# explicitly to override (e.g. when configuring the main worktree itself).
+# Offsets 0 and 1 belong to the templates (liferay-portal, liferay-ee).
+# Auto-discovery (_wt_find_offset) starts at _WT_FIRST_FEATURE_OFFSET; pass
+# `--offset N` explicitly to configure a template.
 
 _WT_PORT_TOMCAT_HTTP=8080
 _WT_PORT_TOMCAT_SHUTDOWN=8005
@@ -26,6 +28,17 @@ _WT_PORT_GLOWROOT=4000
 _WT_PORT_ARQUILLIAN=32763
 _WT_PORT_DATAGUARD=42763
 _WT_PORT_JMX_REMOTE=8099
+
+_WT_FIRST_FEATURE_OFFSET=2
+
+# Files that belong to a single worktree and are never seeded from the template.
+_WT_LOCAL_FILES=(
+    "app.server.$(whoami).properties"
+    "init-local.gradle"
+    "test.$(whoami).properties"
+    "CLAUDE.local.md"
+    ".claude/settings.local.json"
+)
 
 # ==========================================
 # Helpers
@@ -49,7 +62,8 @@ _wt_db_name() {
         echo "lportal"
         return
     fi
-    local stem="${dir_name#liferay-}"
+    local stem="${dir_name#liferay-portal-}"
+    [[ "$stem" == "$dir_name" ]] && stem="${dir_name#liferay-}"
     stem=$(echo "$stem" \
         | tr '[:upper:]' '[:lower:]' \
         | sed -E 's/[^a-z0-9]/_/g; s/_+/_/g; s/^_//; s/_$//')
@@ -74,10 +88,28 @@ _wt_resolve_bundle() {
 }
 
 _wt_find_tomcat() {
+    # Prefer the `tomcat` symlink that `ant all` points at the Tomcat it just
+    # unpacked; otherwise the highest version wins, as in .claude/rules/tomcat.md.
     local bundle_dir="$1"
     [[ -d "$bundle_dir" ]] || return 0
-    # Highest version wins, matching .claude/rules/tomcat.md.
-    find "$bundle_dir" -maxdepth 1 -type d -name 'tomcat-*' 2>/dev/null | sort -V | tail -n 1
+    if [[ -L "$bundle_dir/tomcat" && -d "$bundle_dir/tomcat" ]]; then
+        readlink -f "$bundle_dir/tomcat"
+        return 0
+    fi
+    local tomcat_dir
+    tomcat_dir=$(find "$bundle_dir" -maxdepth 1 -type d -name 'tomcat-*' 2>/dev/null | sort -V | tail -n 1)
+    [[ -n "$tomcat_dir" ]] && readlink -f "$tomcat_dir"
+}
+
+_wt_running_tomcats() {
+    # Canonical catalina.base of every running Tomcat, one per line.
+    local base
+    ps -eo args 2>/dev/null \
+        | grep --only-matching '\-Dcatalina\.base=[^ ]*' \
+        | sed 's/-Dcatalina.base=//' \
+        | while IFS= read -r base; do
+            readlink -f "$base"
+        done
 }
 
 _wt_is_main_worktree() {
@@ -87,6 +119,13 @@ _wt_is_main_worktree() {
     git_dir=$(cd "$worktree_dir" 2>/dev/null && git rev-parse --absolute-git-dir 2>/dev/null)
     common_dir=$(cd "$worktree_dir" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" && pwd -P)
     [[ -n "$git_dir" && "$git_dir" == "$common_dir" ]]
+}
+
+_wt_main_worktree() {
+    # Print the main worktree of the repository that contains $1.
+    local common_dir
+    common_dir=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+    dirname "$common_dir"
 }
 
 _wt_offset_ports_free() {
@@ -108,9 +147,13 @@ _wt_offset_ports_free() {
 }
 
 _wt_find_offset() {
-    local offset=1
+    # Skip offsets claimed by any bundle, running or not, so a stopped
+    # worktree keeps its ports.
+    local claimed
+    claimed=$(cat "${LIFERAY_BASE:-$HOME/repositories}"/bundles/*/.worktree-port-offset 2>/dev/null)
+    local offset=$_WT_FIRST_FEATURE_OFFSET
     while (( offset < 100 )); do
-        if _wt_offset_ports_free "$offset"; then
+        if ! grep -qx "$offset" <<< "$claimed" && _wt_offset_ports_free "$offset"; then
             echo "$offset"
             return 0
         fi
@@ -140,7 +183,7 @@ _wt_remove_property() {
 _wt_worktree_branch() {
     # Find the branch name for an absolute worktree path via porcelain output.
     local target="$1"
-    git worktree list --porcelain 2>/dev/null | awk \
+    git -C "$target" worktree list --porcelain 2>/dev/null | awk \
         -v target="$target" '
         $1 == "worktree" { current = $2 }
         $1 == "branch" && current == target {
@@ -149,6 +192,239 @@ _wt_worktree_branch() {
             exit
         }
     '
+}
+
+_wt_branch_checkout() {
+    # Print the worktree where a local branch is checked out, if any.
+    local repo_dir="$1"
+    local branch="$2"
+    git -C "$repo_dir" worktree list --porcelain 2>/dev/null | awk \
+        -v ref="refs/heads/$branch" '
+        $1 == "worktree" { current = $2 }
+        $1 == "branch" && $2 == ref {
+            print current
+            exit
+        }
+    '
+}
+
+_wt_psql() {
+    # Peer-authenticated psql as the current user when that role exists
+    # (create role <user> login createdb; grant sa to <user>), else via sudo.
+    if psql -d postgres -Atqc 'select 1' >/dev/null 2>&1; then
+        psql -d postgres "$@"
+    else
+        sudo -u postgres psql "$@"
+    fi
+}
+
+# ==========================================
+# Families — one template per repository
+# ==========================================
+# Every default can be overridden from the environment (01-environment).
+
+_wt_template_dir() {
+    case "$1" in
+        portal) echo "${LIFERAY_PRJ:-${LIFERAY_BASE:-$HOME/repositories}/liferay-portal}" ;;
+        ee) echo "${LIFERAY_PRJ_EE:-${LIFERAY_BASE:-$HOME/repositories}/liferay-ee}" ;;
+    esac
+}
+
+_wt_family_local() {
+    # Local branch the template is kept on.
+    case "$1" in
+        portal) echo "${WTCLI_PORTAL_LOCAL:-master}" ;;
+        ee) echo "${WTCLI_EE_LOCAL:-release-2026.q1}" ;;
+    esac
+}
+
+_wt_family_base() {
+    # Ref that new feature branches start from.
+    case "$1" in
+        portal) echo "${WTCLI_PORTAL_BASE:-origin/master}" ;;
+        ee) echo "${WTCLI_EE_BASE:-liferay-ee/release-2026.q1}" ;;
+    esac
+}
+
+_wt_family_upstream() {
+    # Reference the local branch and the base are checked against. For the
+    # portal it defaults to what the local branch tracks (the repository that
+    # origin is forked from); for EE it is the base itself.
+    local family="$1"
+    case "$family" in
+        portal)
+            if [[ -n "$WTCLI_PORTAL_UPSTREAM" ]]; then
+                echo "$WTCLI_PORTAL_UPSTREAM"
+            else
+                git -C "$(_wt_template_dir portal)" rev-parse --abbrev-ref "$(_wt_family_local portal)@{upstream}" 2>/dev/null
+            fi
+            ;;
+        ee) echo "${WTCLI_EE_UPSTREAM:-$(_wt_family_base ee)}" ;;
+    esac
+}
+
+_wt_family_of() {
+    # Print the family whose template shares the git repository of $1.
+    local common_dir
+    common_dir=$(git -C "${1:-$PWD}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+    local family template
+    for family in portal ee; do
+        template=$(_wt_template_dir "$family")
+        [[ -d "$template" ]] || continue
+        if [[ "$(git -C "$template" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" == "$common_dir" ]]; then
+            echo "$family"
+            return 0
+        fi
+    done
+    return 1
+}
+
+_wt_resolve_family() {
+    # An explicit family wins; otherwise the one of the cwd, else portal.
+    if [[ -n "$1" ]]; then
+        echo "$1"
+    else
+        _wt_family_of "$PWD" || echo "portal"
+    fi
+}
+
+# ==========================================
+# Alignment
+# ==========================================
+_wt_fetch_refs() {
+    # Fetch each "<remote>/<branch>" ref so comparisons reflect the remotes.
+    # Refs that are not remote-tracking (local branches, SHAs) are skipped.
+    local repo_dir="$1"
+    shift
+    local ref remote
+    for ref in "$@"; do
+        remote="${ref%%/*}"
+        [[ "$remote" == "$ref" ]] && continue
+        git -C "$repo_dir" remote get-url "$remote" >/dev/null 2>&1 || continue
+        git -C "$repo_dir" fetch --quiet "$remote" "${ref#*/}" \
+            || echo "Warning: could not fetch $ref."
+    done
+}
+
+_wt_compare() {
+    # Print how $2 relates to $3: aligned, behind N, ahead N, diverged A/B,
+    # or missing <ref>.
+    local repo_dir="$1"
+    local left="$2"
+    local right="$3"
+    local ref
+    for ref in "$left" "$right"; do
+        if ! git -C "$repo_dir" rev-parse -q --verify "${ref}^{commit}" >/dev/null; then
+            echo "missing $ref"
+            return 0
+        fi
+    done
+    local ahead behind
+    read -r ahead behind < <(git -C "$repo_dir" rev-list --left-right --count "${left}...${right}")
+    if (( ahead == 0 && behind == 0 )); then
+        echo "aligned"
+    elif (( ahead == 0 )); then
+        echo "behind $behind"
+    elif (( behind == 0 )); then
+        echo "ahead $ahead"
+    else
+        echo "diverged $ahead/$behind"
+    fi
+}
+
+_wt_check() {
+    # Report how the family's local branch and base line up with the
+    # upstream. Only remote-tracking refs change (fetch); never blocks.
+    local family="$1"
+    local fetch="${2:-1}"
+    local template
+    template=$(_wt_template_dir "$family")
+    if [[ ! -d "$template" ]]; then
+        echo "Template not found: $template"
+        return 1
+    fi
+    local local_branch base upstream
+    local_branch=$(_wt_family_local "$family")
+    base=$(_wt_family_base "$family")
+    upstream=$(_wt_family_upstream "$family")
+    if [[ -z "$upstream" ]]; then
+        echo "No upstream for $local_branch; set WTCLI_PORTAL_UPSTREAM or run 'git branch -u <remote>/<branch> $local_branch'. Using $base."
+        upstream="$base"
+    fi
+
+    (( fetch )) && _wt_fetch_refs "$template" $(printf '%s\n' "$base" "$upstream" | sort -u)
+
+    local rows=("$local_branch $upstream")
+    [[ "$base" != "$upstream" ]] && rows+=("$base $upstream" "$local_branch $base")
+
+    printf '\n=== Alignment: %s (upstream %s) ===\n' "$family" "$upstream"
+    local row state misaligned=0
+    for row in "${rows[@]}"; do
+        state=$(_wt_compare "$template" ${row})
+        [[ "$state" != "aligned" ]] && misaligned=1
+        printf '  %-30s vs %-30s %s\n' ${row} "$state"
+    done
+
+    local template_behind
+    template_behind=$(git -C "$template" rev-list --count "HEAD..${base}" 2>/dev/null)
+    if [[ -n "$template_behind" && "$template_behind" != "0" ]]; then
+        printf '  Template %s is %s commits behind %s: refresh it with "git pull" + "lifcli rebuild".\n' \
+            "$(basename "$template")" "$template_behind" "$base"
+    fi
+    (( misaligned )) && echo "  Run 'wtcli sync$([[ "$family" == ee ]] && echo ' --ee')' to align (it never pushes)."
+    return 0
+}
+
+_wt_sync() {
+    # Fast-forward the local branch to the upstream when strictly behind.
+    # Anything else (ahead, diverged, the base on origin) is only reported,
+    # with the command to run: wtcli never pushes.
+    local family="$1"
+    _wt_check "$family" || return 1
+    local template local_branch base upstream
+    template=$(_wt_template_dir "$family")
+    local_branch=$(_wt_family_local "$family")
+    base=$(_wt_family_base "$family")
+    upstream=$(_wt_family_upstream "$family")
+    [[ -z "$upstream" ]] && upstream="$base"
+
+    echo
+    local state checkout
+    state=$(_wt_compare "$template" "$local_branch" "$upstream")
+    case "$state" in
+        aligned)
+            echo "$local_branch is aligned with $upstream."
+            ;;
+        behind*)
+            checkout=$(_wt_branch_checkout "$template" "$local_branch")
+            if [[ -z "$checkout" ]]; then
+                git -C "$template" update-ref "refs/heads/$local_branch" \
+                    "$(git -C "$template" rev-parse "$upstream")" \
+                    "$(git -C "$template" rev-parse "$local_branch")" \
+                    && echo "Fast-forwarded $local_branch to $upstream."
+            elif [[ -n "$(git -C "$checkout" status --porcelain --untracked-files=no)" ]]; then
+                echo "$local_branch is checked out with local changes in $checkout; fast-forward it there yourself."
+            else
+                git -C "$checkout" merge --ff-only --quiet "$upstream" \
+                    && echo "Fast-forwarded $local_branch in $checkout to $upstream."
+            fi
+            ;;
+        missing*)
+            echo "Cannot sync $local_branch: $state."
+            ;;
+        *)
+            echo "$local_branch is $state relative to $upstream; leaving it alone. To reset it:"
+            echo "  git -C $template branch -f $local_branch $upstream   (fails while it is checked out)"
+            ;;
+    esac
+
+    if [[ "$base" != "$upstream" ]]; then
+        state=$(_wt_compare "$template" "$base" "$upstream")
+        if [[ "$state" != "aligned" ]]; then
+            echo "$base is $state relative to $upstream. wtcli never pushes; to update it, run:"
+            echo "  git -C $template push ${base%%/*} $upstream:refs/heads/${base#*/}"
+        fi
+    fi
 }
 
 # ==========================================
@@ -418,7 +694,22 @@ _wt_create_database() {
         return 0
     fi
 
-    sudo -u postgres psql -c "create database $db_name owner sa;"
+    if [[ -n "$(_wt_psql -Atc "select 1 from pg_database where datname = '${db_name}'")" ]]; then
+        echo "Database ${db_name} already exists, skipping."
+        return 0
+    fi
+    _wt_psql -c "create database ${db_name} owner sa;"
+}
+
+_wt_drop_database() {
+    local db_name="$1"
+    if ! command -v psql >/dev/null 2>&1; then
+        echo "psql CLI not available. Run manually:"
+        echo "  sudo -u postgres psql -c 'drop database ${db_name} with (force);'"
+        return 0
+    fi
+
+    _wt_psql -c "drop database if exists ${db_name} with (force);"
 }
 
 _wt_clear_osgi_state() {
@@ -473,6 +764,7 @@ _wt_print_summary() {
 _wt_configure_ports() {
     local worktree_dir="$1"
     local desired_offset="$2"
+    local skip_db="${3:-0}"
 
     local bundle_dir
     bundle_dir=$(_wt_resolve_bundle "$worktree_dir")
@@ -492,7 +784,7 @@ _wt_configure_ports() {
     else
         offset=$(_wt_find_offset)
         if [[ -z "$offset" ]]; then
-            echo "Could not find a free port offset (1..99)."
+            echo "Could not find a free port offset (${_WT_FIRST_FEATURE_OFFSET}..99)."
             return 1
         fi
     fi
@@ -514,7 +806,7 @@ _wt_configure_ports() {
     _wt_patch_test_user_properties "$worktree_dir" "$offset"
     _wt_write_init_local_gradle "$worktree_dir" "$offset"
     _wt_exclude_init_local_gradle "$worktree_dir"
-    _wt_create_database "$db_name"
+    (( skip_db )) || _wt_create_database "$db_name"
     _wt_clear_osgi_state "$bundle_dir"
 
     _wt_print_summary "$worktree_dir" "$bundle_dir" "$offset" "$db_name"
@@ -523,24 +815,138 @@ _wt_configure_ports() {
 # ==========================================
 # Action: New
 # ==========================================
+_wt_seed_build_output() {
+    # Reflink-copy the template's ignored files (build output, node_modules,
+    # .gradle, IDE files) so the worktree starts built. Tracked files come
+    # from the checkout and are never overwritten; per-worktree files and
+    # nested worktrees are skipped. Only paths the worktree's own .gitignore
+    # also ignores are copied, so a template on another branch cannot leave
+    # untracked files behind.
+    local template="$1"
+    local worktree_dir="$2"
+    local skip_regex
+    skip_regex="^($(printf '%s|' "${_WT_LOCAL_FILES[@]}" | sed 's/\./\\./g')\.claude/worktrees/|\.gradle/(daemon|\.tmp|workers)/|bundle/)"
+    (
+        cd "$template" &&
+        git ls-files -z --others --ignored --exclude-standard --directory \
+            | grep -zEv "$skip_regex" \
+            | git -C "$worktree_dir" check-ignore -z --stdin \
+            | xargs -0 -r cp -a --reflink=auto --no-clobber --parents -t "$worktree_dir"
+    )
+}
+
+_wt_copy_bundle() {
+    # Reflink-copy the template bundle without the state tied to the
+    # template's database (data/, osgi/state) or process (logs, work), then
+    # repoint the absolute paths it carries (tomcat symlink, liferay.home,
+    # setenv.sh agents) at this worktree.
+    local src="$1"
+    local dst="$2"
+    local src_prj="$3"
+    local dst_prj="$4"
+
+    mkdir -p "$dst" || return 1
+    local entry name
+    for entry in "$src"/* "$src"/.[!.]*; do
+        [[ -e "$entry" || -L "$entry" ]] || continue
+        name=$(basename "$entry")
+        case "$name" in
+            data|logs|reports|work|.worktree-port-offset) continue ;;
+        esac
+        cp -a --reflink=auto "$entry" "$dst/" || return 1
+    done
+    rm -rf "$dst/osgi/state" "$dst"/tomcat-*/{logs,temp,work}/*
+
+    if [[ -L "$dst/tomcat" ]]; then
+        ln -sfn "$(basename "$(readlink "$dst/tomcat")")" "$dst/tomcat"
+    fi
+
+    local file
+    for file in "$dst"/*.properties "$dst"/tomcat-*/bin/setenv.sh; do
+        [[ -f "$file" ]] || continue
+        _wt_sed_inplace \
+            -e "s#${src}#${dst}#g" \
+            -e "s#${src_prj}/#${dst_prj}/#g" \
+            -e "s#${src_prj}\$#${dst_prj}#g" \
+            "$file"
+    done
+}
+
+_wt_write_claude_local() {
+    # Instructions for Claude sessions opened in this worktree. Gitignored,
+    # so it survives branch switches and stays out of commits.
+    local worktree_dir="$1"
+    local env_name="$2"
+    local file="$worktree_dir/CLAUDE.local.md"
+    [[ -f "$file" ]] && return 0
+    cat > "$file" <<EOF
+# Local Worktree
+
+This checkout is a wtcli-managed worktree with its own bundle, database, and port offset (\`wtcli status\` prints them).
+
+- Work only in this worktree. Do not edit other checkouts under \`~/repositories\`.
+- Create another worktree only with \`wtcli new <name> [--ee] [--base <ref>] [--reuse|--detach]\`. Never use \`EnterWorktree\`, \`git worktree add\`, or agent worktree isolation: they skip the bundle, database, and port setup.
+- Before starting another Tomcat, run \`wtcli list\`: this machine fits about four running portals.
+- Remove a worktree (\`wtcli cleanup\`) only after the user agrees.
+- Use \`lifcli -e ${env_name} <command>\` for builds, deploys, and the Tomcat lifecycle.
+- Run integration tests with \`<gradlew> -I ${worktree_dir}/init-local.gradle testIntegration --tests <Class>\`.
+EOF
+}
+
+_wt_report_drift() {
+    # The seeded build output matches the template's HEAD; say whether this
+    # checkout needs a full rebuild or only module deploys.
+    local template="$1"
+    local worktree_dir="$2"
+    local env_name="$3"
+    local template_head head
+    template_head=$(git -C "$template" rev-parse HEAD)
+    head=$(git -C "$worktree_dir" rev-parse HEAD)
+    [[ "$template_head" == "$head" ]] && return 0
+
+    local core
+    core=$(git -C "$worktree_dir" diff --name-only "$template_head" "$head" -- \
+        portal-kernel portal-impl portal-web util-bridges util-java util-slf4j util-taglib | head -n 1)
+    echo
+    if [[ -n "$core" ]]; then
+        echo "Portal core differs from the template build: run 'lifcli -e ${env_name} rebuildFull' before starting."
+    else
+        echo "Only modules differ from the template build: 'lifcli -e ${env_name} deployChanged' deploys them."
+    fi
+}
+
 _wt_new() {
-    local branch=""
+    local name=""
     local dir_name=""
     local offset=""
-    local reuse_branch=0
+    local base=""
+    local family=""
+    local mode="branch"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --base)
+                base="$2"
+                shift 2
+                ;;
+            --detach)
+                mode="detach"
+                shift
+                ;;
             --dir-name)
                 dir_name="$2"
                 shift 2
+                ;;
+            --ee)
+                family="ee"
+                shift
                 ;;
             --offset)
                 offset="$2"
                 shift 2
                 ;;
             --reuse)
-                reuse_branch=1
+                mode="reuse"
                 shift
                 ;;
             -*)
@@ -548,77 +954,109 @@ _wt_new() {
                 return 1
                 ;;
             *)
-                [[ -z "$branch" ]] && branch="$1"
+                [[ -z "$name" ]] && name="$1"
                 shift
                 ;;
         esac
     done
 
-    if [[ -z "$branch" ]]; then
-        echo "Usage: wtcli new <BRANCH> [--dir-name DIR] [--offset N] [--reuse]"
+    if [[ -z "$name" ]]; then
+        echo "Usage: wtcli new <NAME> [--ee] [--base REF] [--reuse | --detach] [--dir-name DIR] [--offset N]"
         return 1
     fi
 
-    local repo_root
-    repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
-    if [[ -z "$repo_root" ]]; then
-        echo "Not inside a Git repository."
+    family=$(_wt_resolve_family "$family")
+    local template
+    template=$(_wt_template_dir "$family")
+    if ! _wt_is_main_worktree "$template"; then
+        echo "Template not found or not a main worktree: $template"
         return 1
     fi
-    local repo_basename
-    repo_basename=$(basename "$repo_root")
-    [[ -z "$dir_name" ]] && dir_name="${repo_basename}-${branch}"
+    local default_base
+    default_base=$(_wt_family_base "$family")
+    [[ -z "$base" ]] && base="$default_base"
+    [[ -z "$dir_name" ]] && dir_name="$(basename "$template")-${name}"
     local worktree_dir
-    worktree_dir="$(dirname "$repo_root")/${dir_name}"
+    worktree_dir="$(dirname "$template")/${dir_name}"
+    local env_name="${dir_name#liferay-}"
 
-    # 1. Create worktree
+    # 1. Fetch and report alignment; warnings never block.
+    _wt_check "$family"
+    if [[ "$base" == "$default_base" ]]; then
+        local upstream state
+        upstream=$(_wt_family_upstream "$family")
+        if [[ -n "$upstream" && "$base" != "$upstream" ]]; then
+            state=$(_wt_compare "$template" "$base" "$upstream")
+            if [[ "$state" == behind* || "$state" == diverged* ]]; then
+                printf '\n*** WARNING: %s is %s relative to %s, so the new checkout starts from stale code. ***\n' "$base" "$state" "$upstream"
+                printf '*** Align it first (wtcli sync, then push), or pass --base %s. ***\n' "$upstream"
+            fi
+        fi
+    else
+        _wt_fetch_refs "$template" "$base"
+    fi
+    echo
+
+    # 2. Create the worktree.
     if [[ -d "$worktree_dir" ]]; then
         echo "Worktree directory already exists: $worktree_dir — skipping creation."
-    elif (( reuse_branch )); then
-        git worktree add "$worktree_dir" "$branch" || return 1
     else
-        if ! git worktree add -b "$branch" "$worktree_dir" master; then
-            echo
-            echo "Branch creation may have failed (already exists?)."
-            echo "Retry with:  wtcli new $branch --reuse"
-            echo "Or pick a new branch name with --dir-name and a fresh branch."
-            return 1
-        fi
+        case "$mode" in
+            detach)
+                git -C "$template" worktree add --detach "$worktree_dir" "$base" || return 1
+                ;;
+            reuse)
+                git -C "$template" worktree add "$worktree_dir" "$name" || return 1
+                ;;
+            branch)
+                if ! git -C "$template" worktree add --no-track -b "$name" "$worktree_dir" "$base"; then
+                    echo
+                    echo "Branch creation failed (already exists?)."
+                    echo "Retry with:  wtcli new $name --reuse"
+                    return 1
+                fi
+                ;;
+        esac
     fi
 
-    # 2. Configure bundle directory
+    # 3. Seed build output from the template.
+    echo "Seeding build output from $template ..."
+    _wt_seed_build_output "$template" "$worktree_dir" \
+        || echo "Warning: seeding was incomplete; the first build may take longer."
+
+    # 4. Copy the template bundle.
     local app_props="$worktree_dir/app.server.$(whoami).properties"
-    if [[ ! -f "$app_props" ]] && [ -z "$LIFERAY_BASE" ]; then
-        echo 'Setting bundle dir to ${project.dir}/bundle'
-        echo 'app.server.parent.dir=${project.dir}/bundle' > "$app_props"
-    elif [[ ! -f "$app_props" ]]; then
-        echo "Setting bundle dir to $LIFERAY_BASE/bundles/${dir_name}-bundle"
-        echo "app.server.parent.dir=$LIFERAY_BASE/bundles/${dir_name}-bundle" > "$app_props"
+    if [[ ! -f "$app_props" ]]; then
+        echo "app.server.parent.dir=${LIFERAY_BASE:-$(dirname "$template")}/bundles/${dir_name}-bundle" > "$app_props"
     fi
-
-    # 3. Build (only if no bundle yet)
     local bundle_dir
     bundle_dir=$(_wt_resolve_bundle "$worktree_dir")
-    local tomcat_dir
-    tomcat_dir=$(_wt_find_tomcat "$bundle_dir")
-    if [[ -z "$tomcat_dir" ]]; then
-        echo "No bundle found in dir $tomcat_dir — running 'ant all' in $worktree_dir"
-        if ! (cd "$worktree_dir" && ANT_OPTS="-Xmx2560m" ant setup-profile-dxp && ANT_OPTS="-Xmx2560m" ant all); then
-            echo "ant all failed."
-            return 1
-        fi
+    if [[ -n "$(_wt_find_tomcat "$bundle_dir")" ]]; then
+        echo "Existing bundle found at $bundle_dir — keeping it."
     else
-        echo "Existing bundle found at $bundle_dir — skipping ant all."
+        local template_bundle
+        template_bundle=$(_wt_resolve_bundle "$template")
+        if [[ -z "$(_wt_find_tomcat "$template_bundle")" ]]; then
+            _wt_write_claude_local "$worktree_dir" "$env_name"
+            echo "Template bundle $template_bundle has no Tomcat."
+            echo "Build one with 'lifcli -e ${env_name} rebuildFull' (it configures the ports afterwards)."
+            return 0
+        fi
+        echo "Copying bundle $template_bundle -> $bundle_dir ..."
+        _wt_copy_bundle "$template_bundle" "$bundle_dir" "$template" "$worktree_dir" || return 1
     fi
 
-    # 4. Configure ports
+    # 5. Claude instructions, ports, and database.
+    _wt_write_claude_local "$worktree_dir" "$env_name"
     _wt_configure_ports "$worktree_dir" "$offset" || return 1
+    _wt_report_drift "$template" "$worktree_dir" "$env_name"
 
-    # 5. Tell the user how to start
-    tomcat_dir=$(_wt_find_tomcat "$(_wt_resolve_bundle "$worktree_dir")")
+    # 6. Next steps.
     echo
-    echo "Start with:  ${tomcat_dir}/bin/catalina.sh start"
-    echo "Tail log:    tail -f ${tomcat_dir}/logs/catalina.out"
+    echo "Worktree:    $worktree_dir"
+    echo "Claude:      cd $worktree_dir && claude"
+    echo "Start:       lifcli -e ${env_name} tomstart"
+    echo "Clean up:    wtcli cleanup $worktree_dir"
 }
 
 # ==========================================
@@ -670,7 +1108,7 @@ _wt_list_row() {
         else
             offset="?"
         fi
-        if echo "$running_bases" | grep -qFx "$tomcat_dir"; then
+        if grep -qFx "$tomcat_dir" <<< "$running_bases"; then
             status="RUNNING"
         else
             status="STOPPED"
@@ -681,32 +1119,71 @@ _wt_list_row() {
 
 _wt_list() {
     local running_bases
-    running_bases=$(ps -eo args 2>/dev/null \
-        | grep --only-matching '\-Dcatalina\.base=[^ ]*' \
-        | sed 's/-Dcatalina.base=//')
+    running_bases=$(_wt_running_tomcats)
 
     printf '%-40s %-8s %-10s %-8s %s\n' "Worktree" "Port" "Status" "Offset" "Database"
     printf '%-40s %-8s %-10s %-8s %s\n' "----------------------------------------" "--------" "----------" "--------" "------------------------"
 
-    local current_path=""
-    local line
-    while IFS= read -r line; do
-        if [[ "$line" == worktree\ * ]]; then
-            current_path="${line#worktree }"
-        elif [[ -z "$line" && -n "$current_path" ]]; then
-            _wt_list_row "$current_path" "$running_bases"
-            current_path=""
-        fi
-    done < <(git worktree list --porcelain 2>/dev/null; printf '\n')
-
-    [[ -n "$current_path" ]] && _wt_list_row "$current_path" "$running_bases"
+    local family template current_path line
+    for family in portal ee; do
+        template=$(_wt_template_dir "$family")
+        [[ -d "$template" ]] || continue
+        current_path=""
+        while IFS= read -r line; do
+            if [[ "$line" == worktree\ * ]]; then
+                current_path="${line#worktree }"
+            elif [[ -z "$line" && -n "$current_path" ]]; then
+                _wt_list_row "$current_path" "$running_bases"
+                current_path=""
+            fi
+        done < <(git -C "$template" worktree list --porcelain 2>/dev/null; printf '\n')
+    done
 }
 
 # ==========================================
 # Action: Cleanup
 # ==========================================
+_wt_stop_tomcat() {
+    # Stop the bundle's Tomcat and wait for it to exit; kill it after 60s.
+    local bundle_dir="$1"
+    local tomcat_dir="$2"
+    pgrep -f "catalina.base=${bundle_dir}/" >/dev/null || return 0
+    "$tomcat_dir/bin/catalina.sh" stop >/dev/null 2>&1
+    local waited=0
+    while pgrep -f "catalina.base=${bundle_dir}/" >/dev/null && (( waited < 60 )); do
+        sleep 2
+        waited=$((waited + 2))
+    done
+    pkill -KILL -f "catalina.base=${bundle_dir}/" >/dev/null 2>&1 || true
+}
+
 _wt_cleanup() {
-    local worktree_dir="${1:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+    local worktree_dir=""
+    local yes=0
+    local delete_branch=0
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --delete-branch)
+                delete_branch=1
+                shift
+                ;;
+            --yes|-y)
+                yes=1
+                shift
+                ;;
+            -*)
+                echo "Unknown flag: $1"
+                return 1
+                ;;
+            *)
+                [[ -z "$worktree_dir" ]] && worktree_dir="$1"
+                shift
+                ;;
+        esac
+    done
+
+    [[ -z "$worktree_dir" ]] && worktree_dir=$(git rev-parse --show-toplevel 2>/dev/null)
     if [[ -z "$worktree_dir" ]]; then
         echo "Not inside a Git repository and no worktree path provided."
         return 1
@@ -714,7 +1191,10 @@ _wt_cleanup() {
 
     local abs_path
     abs_path=$(cd "$worktree_dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)
-    [[ -z "$abs_path" ]] && abs_path="$worktree_dir"
+    if [[ -z "$abs_path" ]]; then
+        echo "Not a git worktree: $worktree_dir"
+        return 1
+    fi
 
     local dir_name
     dir_name=$(basename "$abs_path")
@@ -723,6 +1203,8 @@ _wt_cleanup() {
         return 1
     fi
 
+    local main_dir
+    main_dir=$(_wt_main_worktree "$abs_path")
     local bundle_dir
     bundle_dir=$(_wt_resolve_bundle "$abs_path")
     local tomcat_dir
@@ -732,41 +1214,51 @@ _wt_cleanup() {
     local branch
     branch=$(_wt_worktree_branch "$abs_path")
 
+    # Only a bundle wtcli created for this worktree is deleted.
+    local owned_bundle="${LIFERAY_BASE:-$(dirname "$main_dir")}/bundles/${dir_name}-bundle"
+    [[ "$bundle_dir" == "$owned_bundle" ]] || owned_bundle=""
+
     echo "About to clean up worktree:"
     echo "  Path:     $abs_path"
-    echo "  Branch:   ${branch:-<unknown>}"
+    echo "  Branch:   ${branch:-<detached>}$( (( delete_branch )) && echo ' (deleted)' || echo ' (kept)')"
     echo "  Database: $db_name"
     echo "  Tomcat:   ${tomcat_dir:-<none>}"
-    read -r -p "Proceed? [y/N] " confirm
-    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-        echo "Aborted."
-        return 0
+    echo "  Bundle:   ${owned_bundle:-<kept: not created by wtcli>}"
+    if (( ! yes )); then
+        read -r -p "Proceed? [y/N] " confirm
+        if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+            echo "Aborted."
+            return 0
+        fi
     fi
 
     # 1. Stop tomcat
-    if [[ -n "$tomcat_dir" ]]; then
-        "$tomcat_dir/bin/catalina.sh" stop
-    fi
+    [[ -n "$tomcat_dir" ]] && _wt_stop_tomcat "$bundle_dir" "$tomcat_dir"
 
-    # 2. Drop database
-    if command -v psql >/dev/null 2>&1; then
-        sudo -u postgres psql -c "drop database $db_name with (force);"
-    else
-        echo "psql CLI not available. Run manually:"
-        echo "  sudo -u postgres psql -c 'drop database ${db_name} with (force);'"
-    fi
-
-    # 3. Remove worktree
-    if ! git worktree remove "$abs_path"; then
-        echo "git worktree remove failed."
+    # 2. Remove worktree first: git refuses when it has uncommitted changes,
+    #    and then nothing else is touched.
+    if ! git -C "$main_dir" worktree remove "$abs_path"; then
+        echo "git worktree remove failed; database and bundle left in place."
         return 1
     fi
 
-    # 4. Optionally delete branch
+    # 3. Drop database
+    _wt_drop_database "$db_name"
+
+    # 4. Delete bundle
+    if [[ -n "$owned_bundle" && -d "$owned_bundle" ]]; then
+        rm -rf "$owned_bundle"
+        echo "Deleted $owned_bundle."
+    fi
+
+    # 5. Optionally delete branch
     if [[ -n "$branch" ]]; then
-        read -r -p "Also delete local branch '$branch'? [y/N] " del
-        if [[ "$del" == "y" || "$del" == "Y" ]]; then
-            git branch --delete --force "$branch"
+        if (( ! delete_branch && ! yes )); then
+            read -r -p "Also delete local branch '$branch'? [y/N] " del
+            [[ "$del" == "y" || "$del" == "Y" ]] && delete_branch=1
+        fi
+        if (( delete_branch )); then
+            git -C "$main_dir" branch --delete --force "$branch"
         fi
     fi
 }
@@ -780,27 +1272,45 @@ wtcli() {
         cat <<'EOF'
 Usage: wtcli <command> [args...]
 
-Commands:
-  new <BRANCH> [--dir-name DIR] [--offset N] [--reuse]
-        Create a worktree, build (if needed), and configure ports.
-        --reuse           Reuse an existing branch instead of creating one.
-        --dir-name DIR    Override the worktree directory name.
-        --offset N        Force a specific port offset (0 is allowed for the
-                          main worktree; auto-discovery starts at 1).
+Templates: liferay-portal (offset 0) and liferay-ee (offset 1) stay built and
+are never used for feature work. Commands pick the family from the cwd (any
+worktree of that repository), else portal; --ee forces EE.
 
-  configure [WORKTREE] [--offset N]
+Commands:
+  new <NAME> [--ee] [--base REF] [--reuse | --detach] [--dir-name DIR] [--offset N]
+        Create liferay-<family>-<NAME> next to the template: reflink-copy the
+        template's build output and bundle, then configure ports, database,
+        and CLAUDE.local.md. Reports alignment first (never blocks).
+        (default)         New branch NAME from REF (default: WTCLI_PORTAL_BASE
+                          = origin/master, WTCLI_EE_BASE = liferay-ee/release-2026.q1).
+        --base REF        Start from REF (e.g. a remote branch "remote/branch").
+        --reuse           Check out the existing local branch NAME.
+        --detach          No branch: detached checkout of REF, to just look.
+        --dir-name DIR    Override the worktree directory name.
+        --offset N        Force a port offset (auto-discovery starts at 2).
+
+  check [--ee]
+        Fetch, then compare the local base branch, the base (origin), and the
+        upstream (what the local branch tracks; override WTCLI_PORTAL_UPSTREAM).
+
+  sync [--ee]
+        Fast-forward the local base branch when strictly behind the upstream.
+        Never pushes: prints the push command for the base instead.
+
+  configure [WORKTREE] [--offset N] [--no-db]
         Re-apply port configuration after a rebuild. Defaults to cwd's worktree.
 
   status [WORKTREE]
         Print the configured ports for one worktree.
 
   list
-        Summary table of every worktree (port, running status, offset, db).
+        Summary table of every worktree of both templates (port, status, offset, db).
 
-  cleanup [WORKTREE]
-        Stop tomcat, drop the database, remove the worktree, optionally
-        delete the branch. Refuses to touch a main worktree (liferay-portal,
-        liferay-ee).
+  cleanup [WORKTREE] [--yes] [--delete-branch]
+        Stop tomcat, remove the worktree (refused with uncommitted changes),
+        drop the database, delete the wtcli-created bundle, and optionally the
+        branch. Refuses the templates. --yes skips prompts and keeps the branch
+        unless --delete-branch is given.
 EOF
         return 0
     fi
@@ -810,17 +1320,33 @@ EOF
         new)
             _wt_new "$@"
             ;;
+        check|sync)
+            local family=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --ee) family="ee"; shift ;;
+                    *) echo "Unknown argument: $1"; return 1 ;;
+                esac
+            done
+            family=$(_wt_resolve_family "$family")
+            if [[ "$cmd" == "check" ]]; then
+                _wt_check "$family"
+            else
+                _wt_sync "$family"
+            fi
+            ;;
         configure)
-            local target="" off=""
+            local target="" off="" no_db=0
             while [[ $# -gt 0 ]]; do
                 case "$1" in
                     --offset) off="$2"; shift 2 ;;
+                    --no-db) no_db=1; shift ;;
                     -*) echo "Unknown flag: $1"; return 1 ;;
                     *) [[ -z "$target" ]] && target="$1"; shift ;;
                 esac
             done
             [[ -z "$target" ]] && target=$(git rev-parse --show-toplevel 2>/dev/null)
-            _wt_configure_ports "$target" "$off"
+            _wt_configure_ports "$target" "$off" "$no_db"
             ;;
         status)
             _wt_status "$@"
@@ -847,7 +1373,7 @@ _wtcli_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local commands="new configure status list cleanup"
+    local commands="new check sync configure status list cleanup"
 
     if (( COMP_CWORD == 1 )); then
         COMPREPLY=( $(compgen -W "$commands -h --help" -- "$cur") )
@@ -859,18 +1385,30 @@ _wtcli_completions() {
         new)
             if [[ "$prev" == "--dir-name" || "$prev" == "--offset" ]]; then
                 COMPREPLY=()
+            elif [[ "$prev" == "--base" ]]; then
+                COMPREPLY=( $(compgen -W "$(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes 2>/dev/null)" -- "$cur") )
             else
-                COMPREPLY=( $(compgen -W "--dir-name --offset --reuse" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--ee --base --reuse --detach --dir-name --offset" -- "$cur") )
             fi
+            ;;
+        check|sync)
+            COMPREPLY=( $(compgen -W "--ee" -- "$cur") )
             ;;
         configure)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=( $(compgen -W "--offset" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--offset --no-db" -- "$cur") )
             else
                 COMPREPLY=( $(compgen -d -- "$cur") )
             fi
             ;;
-        status|cleanup)
+        cleanup)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=( $(compgen -W "--yes --delete-branch" -- "$cur") )
+            else
+                COMPREPLY=( $(compgen -d -- "$cur") )
+            fi
+            ;;
+        status)
             COMPREPLY=( $(compgen -d -- "$cur") )
             ;;
         *)

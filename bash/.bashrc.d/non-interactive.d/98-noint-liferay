@@ -55,16 +55,85 @@ _deploya() {
    _deploy -a -Pnodejs.node.env=development "$@"
 }
 
+_deployChanged() {
+    # Deploy the modules changed since the template build (committed,
+    # uncommitted, and untracked). Portal core changes need rebuildFull.
+    local since="$1"
+    if [[ -z "$since" ]]; then
+        local family
+        if ! family=$(_wt_family_of "$CURRENT_LIFERAY_PRJ"); then
+            echo "Not a worktree of a template; pass the base commit: lifcli ... deployChanged <ref>"
+            return 1
+        fi
+        since=$(git -C "$(_wt_template_dir "$family")" rev-parse HEAD)
+    fi
+
+    local files
+    files=$( {
+        git -C "$CURRENT_LIFERAY_PRJ" diff --name-only "$since"
+        git -C "$CURRENT_LIFERAY_PRJ" ls-files --others --exclude-standard
+    } | sort -u)
+
+    local core
+    core=$(grep -E '^(portal-kernel|portal-impl|portal-web|util-[a-z0-9]+)/' <<< "$files")
+    if [[ -n "$core" ]]; then
+        echo "Portal core changed since ${since:0:12}; run 'lifcli ... rebuildFull' instead:"
+        printf '  %s\n' $(cut -d/ -f1 <<< "$core" | sort -u)
+        return 1
+    fi
+
+    # Map each changed file to its module (the nearest dir with a bnd.bnd);
+    # *-test modules are wired in by testIntegration and never deployed.
+    local modules=() file dir
+    while IFS= read -r file; do
+        [[ "$file" == modules/* ]] || continue
+        dir=$(dirname "$file")
+        while [[ "$dir" == modules/* && ! -f "$CURRENT_LIFERAY_PRJ/$dir/bnd.bnd" ]]; do
+            dir=$(dirname "$dir")
+        done
+        [[ -f "$CURRENT_LIFERAY_PRJ/$dir/bnd.bnd" && "$dir" != *-test ]] && modules+=("$dir")
+    done <<< "$files"
+    if (( ${#modules[@]} == 0 )); then
+        echo "No changed modules to deploy since ${since:0:12}."
+        return 0
+    fi
+    mapfile -t modules < <(printf '%s\n' "${modules[@]}" | sort -u)
+
+    printf 'Deploying %d module(s) changed since %s:\n' "${#modules[@]}" "${since:0:12}"
+    printf '  %s\n' "${modules[@]}"
+    local module failed=()
+    for module in "${modules[@]}"; do
+        (cd "$CURRENT_LIFERAY_PRJ/$module" && blade gw $(_gradle_init_args) deploy) || failed+=("$module")
+    done
+    if (( ${#failed[@]} )); then
+        _notify_task "${PREFIX}Deploy changed" "Failed: ${failed[*]}"
+        return 1
+    fi
+    _notify_task "${PREFIX}Deploy changed" "Completed!"
+}
+
 _dropdb() {
     # Use $1 if provided, otherwise fallback to the current environment's DB name
     local db_name="${1:-$CURRENT_DB_NAME}"
-    sudo -u postgres psql -c "drop database $db_name with (force);"
+    _wt_psql -c "drop database if exists $db_name with (force);"
 }
 
 _recreatedb() {
     local db_name="${1:-$CURRENT_DB_NAME}"
     _dropdb "$db_name"
-    sudo -u postgres psql -c "create database $db_name owner sa;"
+    _wt_psql -c "create database $db_name owner sa;"
+}
+
+_reapply_worktree_ports() {
+    # ant all can unpack a fresh tomcat-* with default ports; re-apply the
+    # bundle's wtcli offset (kept in .worktree-port-offset), leaving the DB alone.
+    # A feature worktree built from scratch has no offset yet: allocate one
+    # and create its database.
+    if [[ -f "$CURRENT_LIFERAY_HOME/.worktree-port-offset" ]]; then
+        _wt_configure_ports "$CURRENT_LIFERAY_PRJ" "" 1
+    elif _wt_family_of "$CURRENT_LIFERAY_PRJ" >/dev/null && ! _wt_is_main_worktree "$CURRENT_LIFERAY_PRJ"; then
+        _wt_configure_ports "$CURRENT_LIFERAY_PRJ" ""
+    fi
 }
 
 _sf() {
@@ -205,6 +274,7 @@ _rebuild() {
         if [ $ant_exit_code -ne 0 ]; then
             _notify_task "${PREFIX}Ant all" "Build failed."
         else
+            _reapply_worktree_ports
             _notify_task "${PREFIX}Ant all" "Build completed!"
         fi
         return $ant_exit_code
@@ -218,13 +288,14 @@ _rebuildFull() {
     if [[ -n "$CURRENT_LIFERAY_PRJ" ]]; then
         (
             cd "$CURRENT_LIFERAY_PRJ" &&
-            git clean -dfx -e ".claude/" -e "build.$(whoami).properties" -e "app.server.$(whoami).properties" -e "test.$(whoami).properties" &&
+            git clean -dfx -e ".claude/" -e "build.$(whoami).properties" -e "app.server.$(whoami).properties" -e "test.$(whoami).properties" -e "CLAUDE.local.md" &&
             ant setup-sdk && ant setup-profile-dxp && ij && ant all && ij
         )
         local ant_exit_code=$?
         if [ $ant_exit_code -ne 0 ]; then
             _notify_task "${PREFIX}Ant all" "Build failed."
         else
+            _reapply_worktree_ports
             _notify_task "${PREFIX}Ant all" "Build completed!"
         fi
         return $ant_exit_code
@@ -383,10 +454,25 @@ lifcli() {
                     echo "Error: LIFERAY_BASE env variable must be set to use $1"
                     return 1
                 fi
-                CURRENT_LIFERAY_PRJ="$LIFERAY_BASE/liferay-$2"
-                CURRENT_LIFERAY_HOME="$LIFERAY_BASE/bundles/liferay-$2-bundle"
-                CURRENT_DB_NAME="$(_wt_db_name "liferay-$2")"
-                PREFIX="${2^^} - "
+                if [[ "$2" == "." ]]; then
+                    if ! CURRENT_LIFERAY_PRJ=$(git rev-parse --show-toplevel 2>/dev/null); then
+                        echo "Error: -e . must be run inside a worktree"
+                        return 1
+                    fi
+                else
+                    CURRENT_LIFERAY_PRJ="$LIFERAY_BASE/liferay-$2"
+                fi
+                local env_dir
+                env_dir=$(basename "$CURRENT_LIFERAY_PRJ")
+                # The worktree's app.server properties win over the naming convention.
+                if [[ -f "$CURRENT_LIFERAY_PRJ/app.server.$(whoami).properties" ]]; then
+                    CURRENT_LIFERAY_HOME=$(_wt_resolve_bundle "$CURRENT_LIFERAY_PRJ")
+                else
+                    CURRENT_LIFERAY_HOME="$LIFERAY_BASE/bundles/${env_dir}-bundle"
+                fi
+                CURRENT_DB_NAME="$(_wt_db_name "$env_dir")"
+                PREFIX="${env_dir#liferay-}"
+                PREFIX="${PREFIX^^} - "
                 shift 2
                 ;;
             --ee)
@@ -402,8 +488,9 @@ lifcli() {
                 echo "                              source: \$LIFERAY_BASE/liferay-<name>"
                 echo "                              bundle: \$LIFERAY_BASE/bundles/liferay-<name>-bundle"
                 echo "                              db:     lportal<name> (non-alphanumerics -> _, as wtcli)"
-                echo "  e.g. -e claude1, -e ee, -e ee-claude1"
-                echo "Commands: baseline, deploy, deploya, dropdb, recreatedb, sf, sfc, sfl, buildPortalService, buildRest, buildService, buildLanguage, lifIj, rebuild, rebuildFull, testIntegration, tomclear, tomclearfull, tominit, tomlog, tomrestart, tomstart, tomstop"
+                echo "  -e .                      The worktree containing the cwd."
+                echo "  e.g. -e portal-LPD-12345, -e ee-LPD-12345, -e ."
+                echo "Commands: baseline, deploy, deploya, deployChanged [<ref>], dropdb, recreatedb, sf, sfc, sfl, buildPortalService, buildRest, buildService, buildLanguage, lifIj, rebuild, rebuildFull, testIntegration, tomclear, tomclearfull, tominit, tomlog, tomrestart, tomstart, tomstop"
                 return 0
                 ;;
             *)
@@ -435,6 +522,7 @@ lifcli() {
         baseline)           _baseline "$@" ;;
         deploy)             _deploy "$@" ;;
         deploya)            _deploya "$@" ;;
+        deployChanged)      _deployChanged "$@" ;;
         dropdb)             _dropdb "$@" ;;
         gw)                 _gw "$@" ;;
         gwtest)             _gwtest "$@" ;;
@@ -477,7 +565,7 @@ _lifcli_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Define our lists of valid inputs
-    local commands="baseline deploy deploya dropdb recreatedb sf sfc sfl buildPortalService buildRest buildService buildLanguage lifIj rebuild rebuildFull gwtest testIntegration tomclear tomclearfull tominit tomlog tomrestart tomstart tomstop"
+    local commands="baseline deploy deploya deployChanged dropdb recreatedb sf sfc sfl buildPortalService buildRest buildService buildLanguage lifIj rebuild rebuildFull gwtest testIntegration tomclear tomclearfull tominit tomlog tomrestart tomstart tomstop"
     local global_flags="-e --env --ee -h --help"
 
     # 1. Figure out if the user has already typed a subcommand
@@ -504,6 +592,7 @@ _lifcli_completions() {
                     [[ "$base" == *-bundle ]] && continue
                     names+=( "${base#liferay-}" )
                 done
+                names+=( "." )
                 COMPREPLY=( $(compgen -W "${names[*]}" -- "$cur") )
             fi
             return 0
