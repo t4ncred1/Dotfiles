@@ -1,0 +1,18 @@
+# Pipe the review into Claude's tmux pane with :send (see ~/.local/bin/tuicr-to-agent).
+send_command = "tuicr-to-agent"
+# Keep comments after :send; Claude tracks which ones it has answered.
+send_clears_comments = false
+# Re-read the local diff every 2s so changes appear without :e.
+diff_watch_interval_ms = 2000
+# Leader prefix for panel toggles (ò sits where ; is on a US layout).
+leader = "ò"
+# Join single-child directory chains into one file-tree row.
+compact_folders = true
+# `ask` (the default) is a question Claude answers without changing code;
+# `pr` (PR reviews only) is what :submit posts; `claude` goes to Claude to act
+# on; untyped comments are my own notes.
+comment_types = [
+  { id = "ask", label = "ask", definition = "a question only: answer it and change no code; to get a fix, the user comments with type claude", color = "cyan" },
+  { id = "pr", label = "PR", definition = "posted to the pull request", color = "green", forge = true },
+  { id = "claude", label = "claude", definition = "for Claude to act on and answer", color = "yellow" },
+]
