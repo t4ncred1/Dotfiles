@@ -7,7 +7,7 @@
 # ==========================================
 # Helpers
 # ==========================================
-_notify_task() {
+__notify_task() {
     local title=$1
     local message=$2
     if command -v notify > /dev/null 2>&1; then
@@ -17,7 +17,7 @@ _notify_task() {
     fi
 }
 
-_gradle_init_args() {
+__gradle_init_args() {
     # Echoes `-I <abs-path>` when init-local.gradle exists at the project root,
     # so wtcli-configured port overrides (testIntegrationTomcat.portNumber,
     # liferay.arquillian.port) are applied to every gradle command.
@@ -29,43 +29,43 @@ _gradle_init_args() {
 # ==========================================
 # Private Command Functions
 # ==========================================
-_baseline() {
-    blade gw $(_gradle_init_args) baseline "$@"
+__baseline() {
+    blade gw $(__gradle_init_args) baseline "$@"
     local build_exit_code=$?
     if [ $build_exit_code -ne 0 ]; then
-        _notify_task "Baseline" "Failed."
+        __notify_task "Baseline" "Failed."
     else
-        _notify_task "Baseline" "Completed!"
+        __notify_task "Baseline" "Completed!"
     fi
     return $build_exit_code
 }
 
-_deploy() {
-    blade gw $(_gradle_init_args) deploy "$@"
+__deploy() {
+    blade gw $(__gradle_init_args) deploy "$@"
     local build_exit_code=$?
     if [ $build_exit_code -ne 0 ]; then
-        _notify_task "Deploy" "Failed."
+        __notify_task "Deploy" "Failed."
     else
-        _notify_task "Deploy" "Completed!"
+        __notify_task "Deploy" "Completed!"
     fi
     return $build_exit_code
 }
 
-_deploya() {
-   _deploy -a -Pnodejs.node.env=development "$@"
+__deploya() {
+   __deploy -a -Pnodejs.node.env=development "$@"
 }
 
-_deployChanged() {
+__deployChanged() {
     # Deploy the modules changed since the template build (committed,
     # uncommitted, and untracked). Portal core changes need rebuildFull.
     local since="$1"
     if [[ -z "$since" ]]; then
         local family
-        if ! family=$(_wt_family_of "$CURRENT_LIFERAY_PRJ"); then
+        if ! family=$(__wt_family_of "$CURRENT_LIFERAY_PRJ"); then
             echo "Not a worktree of a template; pass the base commit: lifcli ... deployChanged <ref>"
             return 1
         fi
-        since=$(git -C "$(_wt_template_dir "$family")" rev-parse HEAD)
+        since=$(git -C "$(__wt_template_dir "$family")" rev-parse HEAD)
     fi
 
     local files
@@ -103,51 +103,51 @@ _deployChanged() {
     printf '  %s\n' "${modules[@]}"
     local module failed=()
     for module in "${modules[@]}"; do
-        (cd "$CURRENT_LIFERAY_PRJ/$module" && blade gw $(_gradle_init_args) deploy) || failed+=("$module")
+        (cd "$CURRENT_LIFERAY_PRJ/$module" && blade gw $(__gradle_init_args) deploy) || failed+=("$module")
     done
     if (( ${#failed[@]} )); then
-        _notify_task "${PREFIX}Deploy changed" "Failed: ${failed[*]}"
+        __notify_task "${PREFIX}Deploy changed" "Failed: ${failed[*]}"
         return 1
     fi
-    _notify_task "${PREFIX}Deploy changed" "Completed!"
+    __notify_task "${PREFIX}Deploy changed" "Completed!"
 }
 
-_dropdb() {
+__dropdb() {
     # Use $1 if provided, otherwise fallback to the current environment's DB name
     local db_name="${1:-$CURRENT_DB_NAME}"
-    _wt_psql -c "drop database if exists $db_name with (force);"
+    __wt_psql -c "drop database if exists $db_name with (force);"
 }
 
-_recreatedb() {
+__recreatedb() {
     local db_name="${1:-$CURRENT_DB_NAME}"
-    _dropdb "$db_name"
-    _wt_psql -c "create database $db_name owner sa;"
+    __dropdb "$db_name"
+    __wt_psql -c "create database $db_name owner sa;"
 }
 
-_reapply_worktree_ports() {
+__reapply_worktree_ports() {
     # ant all can unpack a fresh tomcat-* with default ports; re-apply the
     # bundle's wtcli offset (kept in .worktree-port-offset), leaving the DB alone.
     # A feature worktree built from scratch has no offset yet: allocate one
     # and create its database.
     if [[ -f "$CURRENT_LIFERAY_HOME/.worktree-port-offset" ]]; then
-        _wt_configure_ports "$CURRENT_LIFERAY_PRJ" "" 1
-    elif _wt_family_of "$CURRENT_LIFERAY_PRJ" >/dev/null && ! _wt_is_main_worktree "$CURRENT_LIFERAY_PRJ"; then
-        _wt_configure_ports "$CURRENT_LIFERAY_PRJ" ""
+        __wt_configure_ports "$CURRENT_LIFERAY_PRJ" "" 1
+    elif __wt_family_of "$CURRENT_LIFERAY_PRJ" >/dev/null && ! __wt_is_main_worktree "$CURRENT_LIFERAY_PRJ"; then
+        __wt_configure_ports "$CURRENT_LIFERAY_PRJ" ""
     fi
 }
 
-_sf() {
-    blade gw $(_gradle_init_args) formatSource "$@"
+__sf() {
+    blade gw $(__gradle_init_args) formatSource "$@"
     local build_exit_code=$?
     if [ $build_exit_code -ne 0 ]; then
-        _notify_task "FormatSource" "Failed."
+        __notify_task "FormatSource" "Failed."
     else
-        _notify_task "FormatSource" "Completed!"
+        __notify_task "FormatSource" "Completed!"
     fi
     return $build_exit_code
 }
 
-_sfc() {
+__sfc() {
     if [[ -n "$CURRENT_LIFERAY_PRJ" ]]; then
         (
             cd "$CURRENT_LIFERAY_PRJ/portal-impl"
@@ -155,18 +155,18 @@ _sfc() {
         )
         local ant_exit_code=$?
         if [ $ant_exit_code -ne 0 ]; then
-            _notify_task "${PREFIX}Ant format-source-current-branch" "Build failed."
+            __notify_task "${PREFIX}Ant format-source-current-branch" "Build failed."
         else
-            _notify_task "${PREFIX}Ant format-source-current-branch" "Build completed!"
+            __notify_task "${PREFIX}Ant format-source-current-branch" "Build completed!"
         fi
         return $ant_exit_code
     else
-        _notify_task "${PREFIX}Ant format-source-current-branch Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        __notify_task "${PREFIX}Ant format-source-current-branch Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
 
-_sfl() {
+__sfl() {
     if [[ -n "$CURRENT_LIFERAY_PRJ" ]]; then
         (
             cd "$CURRENT_LIFERAY_PRJ/portal-impl"
@@ -174,18 +174,18 @@ _sfl() {
         )
         local ant_exit_code=$?
         if [ $ant_exit_code -ne 0 ]; then
-            _notify_task "${PREFIX}Ant format-source-local-changes" "Build failed."
+            __notify_task "${PREFIX}Ant format-source-local-changes" "Build failed."
         else
-            _notify_task "${PREFIX}Ant format-source-local-changes" "Build completed!"
+            __notify_task "${PREFIX}Ant format-source-local-changes" "Build completed!"
         fi
         return $ant_exit_code
     else
-        _notify_task "${PREFIX}Ant format-source-local-changes Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        __notify_task "${PREFIX}Ant format-source-local-changes Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
 
-_buildPortalService() {
+__buildPortalService() {
     if [[ -n "$CURRENT_LIFERAY_PRJ" ]]; then
         (
             cd "$CURRENT_LIFERAY_PRJ/portal-impl"
@@ -193,59 +193,59 @@ _buildPortalService() {
         )
         local build_exit_code=$?
         if [ $build_exit_code -ne 0 ]; then
-            _notify_task "${PREFIX}Build portal service" "Failed."
+            __notify_task "${PREFIX}Build portal service" "Failed."
         else
-            _notify_task "${PREFIX}Build portal service" "Completed!"
+            __notify_task "${PREFIX}Build portal service" "Completed!"
         fi
         return $build_exit_code
     else
-        _notify_task "${PREFIX}Build portal service" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        __notify_task "${PREFIX}Build portal service" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
 
-_buildRest() {
-    blade gw $(_gradle_init_args) buildRest "$@"
+__buildRest() {
+    blade gw $(__gradle_init_args) buildRest "$@"
     local build_exit_code=$?
     if [ $build_exit_code -ne 0 ]; then
-        _notify_task "BuildRest" "Failed."
+        __notify_task "BuildRest" "Failed."
     else
-        _notify_task "BuildRest" "Completed!"
+        __notify_task "BuildRest" "Completed!"
     fi
     return $build_exit_code
 }
 
-_buildService() {
-    blade gw $(_gradle_init_args) buildService "$@"
+__buildService() {
+    blade gw $(__gradle_init_args) buildService "$@"
     local build_exit_code=$?
     if [ $build_exit_code -ne 0 ]; then
-        _notify_task "BuildService" "Failed."
+        __notify_task "BuildService" "Failed."
     else
-        _notify_task "BuildService" "Completed!"
+        __notify_task "BuildService" "Completed!"
     fi
     return $build_exit_code
 }
 
-_buildLanguage() {
+__buildLanguage() {
     if [[ -n "$CURRENT_LIFERAY_PRJ" ]]; then
         (
             cd "$CURRENT_LIFERAY_PRJ/modules/apps/portal-language"
-            blade gw $(_gradle_init_args) buildLang "$@"
+            blade gw $(__gradle_init_args) buildLang "$@"
         )
         local build_exit_code=$?
         if [ $build_exit_code -ne 0 ]; then
-            _notify_task "${PREFIX}BuildLanguage" "Failed."
+            __notify_task "${PREFIX}BuildLanguage" "Failed."
         else
-            _notify_task "${PREFIX}BuildLanguage" "Completed!"
+            __notify_task "${PREFIX}BuildLanguage" "Completed!"
         fi
         return $build_exit_code
     else
-        _notify_task "${PREFIX}BuildLanguage" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        __notify_task "${PREFIX}BuildLanguage" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
 
-_ij() {
+__ij() {
     if [[ -n "$CURRENT_LIFERAY_PRJ" ]]; then
         (
             cd "$CURRENT_LIFERAY_PRJ" &&
@@ -253,18 +253,18 @@ _ij() {
         )
         local build_exit_code=$?
         if [ $build_exit_code -ne 0 ]; then
-            _notify_task "${PREFIX}IJ" "Failed."
+            __notify_task "${PREFIX}IJ" "Failed."
         else
-            _notify_task "${PREFIX}IJ" "Completed!"
+            __notify_task "${PREFIX}IJ" "Completed!"
         fi
         return $build_exit_code
     else
-        _notify_task "${PREFIX}IJ" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        __notify_task "${PREFIX}IJ" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
 
-_rebuild() {
+__rebuild() {
     if [[ -n "$CURRENT_LIFERAY_PRJ" ]]; then
         (
             cd "$CURRENT_LIFERAY_PRJ"
@@ -272,19 +272,19 @@ _rebuild() {
         )
         local ant_exit_code=$?
         if [ $ant_exit_code -ne 0 ]; then
-            _notify_task "${PREFIX}Ant all" "Build failed."
+            __notify_task "${PREFIX}Ant all" "Build failed."
         else
-            _reapply_worktree_ports
-            _notify_task "${PREFIX}Ant all" "Build completed!"
+            __reapply_worktree_ports
+            __notify_task "${PREFIX}Ant all" "Build completed!"
         fi
         return $ant_exit_code
     else
-        _notify_task "${PREFIX}Ant all Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        __notify_task "${PREFIX}Ant all Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
 
-_rebuildFull() {
+__rebuildFull() {
     if [[ -n "$CURRENT_LIFERAY_PRJ" ]]; then
         (
             cd "$CURRENT_LIFERAY_PRJ" &&
@@ -293,33 +293,33 @@ _rebuildFull() {
         )
         local ant_exit_code=$?
         if [ $ant_exit_code -ne 0 ]; then
-            _notify_task "${PREFIX}Ant all" "Build failed."
+            __notify_task "${PREFIX}Ant all" "Build failed."
         else
-            _reapply_worktree_ports
-            _notify_task "${PREFIX}Ant all" "Build completed!"
+            __reapply_worktree_ports
+            __notify_task "${PREFIX}Ant all" "Build completed!"
         fi
         return $ant_exit_code
     else
-        _notify_task "${PREFIX}Ant all Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
+        __notify_task "${PREFIX}Ant all Failed" "You need to populate the LIFERAY_PRJ or LIFERAY_PRJ_EE env variable"
         return 1
     fi
 }
 
-_gw() {
-    blade gw $(_gradle_init_args) "$@"
+__gw() {
+    blade gw $(__gradle_init_args) "$@"
 }
 
-_gwtest() {
-    blade gw $(_gradle_init_args) test "$@"
+__gwtest() {
+    blade gw $(__gradle_init_args) test "$@"
 }
 
-_testIntegration() {
-   blade gw $(_gradle_init_args) testIntegration "$@"
+__testIntegration() {
+   blade gw $(__gradle_init_args) testIntegration "$@"
 }
 
-_tomclear() {
+__tomclear() {
     if [[ -z "$CURRENT_LIFERAY_HOME" ]]; then
-        _notify_task "${PREFIX}Clear tomcat failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
+        __notify_task "${PREFIX}Clear tomcat failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
         return 1
     fi
 
@@ -363,16 +363,16 @@ _tomclear() {
     done
 }
 
-_tomclearfull() {
-    _tomclear --dir "data"
+__tomclearfull() {
+    __tomclear --dir "data"
 }
 
-_tominit() {
-    _tomstop
-    _tomclearfull && _recreatedb "$@" && _tomstart
+__tominit() {
+    __tomstop
+    __tomclearfull && __recreatedb "$@" && __tomstart
 }
 
-_tomlog() {
+__tomlog() {
     if [[ -z "$CURRENT_LIFERAY_HOME" ]]; then
         echo "Error: You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable."
         return 1
@@ -386,12 +386,12 @@ _tomlog() {
     $PAGER "$tomcat_log"
 }
 
-_tomrestart() {
-    _tomstop
-    _tomclear && _tomstart
+__tomrestart() {
+    __tomstop
+    __tomclear && __tomstart
 }
 
-_tomstart() {
+__tomstart() {
     if [[ -n "$CURRENT_LIFERAY_HOME" ]]; then
         local tomcat_log="$CURRENT_LIFERAY_HOME/tomcat/logs/catalina.out"
         rm -rf "$tomcat_log" &&
@@ -400,12 +400,12 @@ _tomstart() {
             $PAGER "$tomcat_log"
         fi
     else
-        _notify_task "${PREFIX}Start failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
+        __notify_task "${PREFIX}Start failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
         return 1
     fi
 }
 
-_tomstop() {
+__tomstop() {
     if [[ -n "$CURRENT_LIFERAY_HOME" ]]; then
         if pgrep -f "catalina.base=$CURRENT_LIFERAY_HOME/tomcat" > /dev/null; then
             "$CURRENT_LIFERAY_HOME/tomcat/bin/catalina.sh" stop
@@ -427,7 +427,7 @@ _tomstop() {
             waited=$((waited + 2))
         done
     else
-        _notify_task "${PREFIX}Stop failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
+        __notify_task "${PREFIX}Stop failed" "You need to populate the LIFERAY_HOME or LIFERAY_HOME_EE env variable"
         return 1
     fi
 }
@@ -466,11 +466,11 @@ lifcli() {
                 env_dir=$(basename "$CURRENT_LIFERAY_PRJ")
                 # The worktree's app.server properties win over the naming convention.
                 if [[ -f "$CURRENT_LIFERAY_PRJ/app.server.$(whoami).properties" ]]; then
-                    CURRENT_LIFERAY_HOME=$(_wt_resolve_bundle "$CURRENT_LIFERAY_PRJ")
+                    CURRENT_LIFERAY_HOME=$(__wt_resolve_bundle "$CURRENT_LIFERAY_PRJ")
                 else
                     CURRENT_LIFERAY_HOME="$LIFERAY_BASE/bundles/${env_dir}-bundle"
                 fi
-                CURRENT_DB_NAME="$(_wt_db_name "$env_dir")"
+                CURRENT_DB_NAME="$(__wt_db_name "$env_dir")"
                 PREFIX="${env_dir#liferay-}"
                 PREFIX="${PREFIX^^} - "
                 shift 2
@@ -519,32 +519,32 @@ lifcli() {
 
     # 3. Explicit command routing
     case "$cmd" in
-        baseline)           _baseline "$@" ;;
-        deploy)             _deploy "$@" ;;
-        deploya)            _deploya "$@" ;;
-        deployChanged)      _deployChanged "$@" ;;
-        dropdb)             _dropdb "$@" ;;
-        gw)                 _gw "$@" ;;
-        gwtest)             _gwtest "$@" ;;
-        recreatedb)         _recreatedb "$@" ;;
-        sf)                 _sf "$@" ;;
-        sfc)                _sfc "$@" ;;
-        sfl)                _sfl "$@" ;;
-        buildPortalService) _buildPortalService "$@" ;;
-        buildRest)          _buildRest "$@" ;;
-        buildService)       _buildService "$@" ;;
-        buildLanguage)      _buildLanguage "$@" ;;
-        ij)                 _ij "$@" ;;
-        rebuild)            _rebuild "$@" ;;
-        rebuildFull)        _rebuildFull "$@" ;;
-        testIntegration)    _testIntegration "$@" ;;
-        tomclear)           _tomclear "$@" ;;
-        tomclearfull)       _tomclearfull "$@" ;;
-        tominit)            _tominit "$@" ;;
-        tomlog)             _tomlog "$@" ;;
-        tomrestart)         _tomrestart "$@" ;;
-        tomstart)           _tomstart "$@" ;;
-        tomstop)            _tomstop "$@" ;;
+        baseline)           __baseline "$@" ;;
+        deploy)             __deploy "$@" ;;
+        deploya)            __deploya "$@" ;;
+        deployChanged)      __deployChanged "$@" ;;
+        dropdb)             __dropdb "$@" ;;
+        gw)                 __gw "$@" ;;
+        gwtest)             __gwtest "$@" ;;
+        recreatedb)         __recreatedb "$@" ;;
+        sf)                 __sf "$@" ;;
+        sfc)                __sfc "$@" ;;
+        sfl)                __sfl "$@" ;;
+        buildPortalService) __buildPortalService "$@" ;;
+        buildRest)          __buildRest "$@" ;;
+        buildService)       __buildService "$@" ;;
+        buildLanguage)      __buildLanguage "$@" ;;
+        ij)                 __ij "$@" ;;
+        rebuild)            __rebuild "$@" ;;
+        rebuildFull)        __rebuildFull "$@" ;;
+        testIntegration)    __testIntegration "$@" ;;
+        tomclear)           __tomclear "$@" ;;
+        tomclearfull)       __tomclearfull "$@" ;;
+        tominit)            __tominit "$@" ;;
+        tomlog)             __tomlog "$@" ;;
+        tomrestart)         __tomrestart "$@" ;;
+        tomstart)           __tomstart "$@" ;;
+        tomstop)            __tomstop "$@" ;;
         *)
             echo "Error: Unknown command '$cmd'"
             echo "Type 'lifcli --help' for a list of valid commands."
