@@ -1,0 +1,63 @@
+onboarding = false
+
+[keys]
+prefix = "ctrl+space"
+
+# Navigate mode: j/k = workspaces (sidebar), h/l = panes, J/K = panes up/down
+navigate_workspace_up = "k"
+navigate_workspace_down = "j"
+navigate_pane_up = "shift+k"
+navigate_pane_down = "shift+j"
+
+# Windows (ctrl-w style)
+split_vertical = "prefix+v"
+split_horizontal = "prefix+s"
+close_pane = "prefix+q"
+last_pane = "prefix+p"
+cycle_pane_next = "prefix+w"
+swap_pane_left = "prefix+shift+h"
+swap_pane_down = "prefix+shift+j"
+swap_pane_up = "prefix+shift+k"
+swap_pane_right = "prefix+shift+l"
+
+# Tabs (gt / gT feel)
+next_tab = "prefix+n"
+previous_tab = "prefix+shift+n"
+move_tab_previous = "prefix+ctrl+h"
+move_tab_next = "prefix+ctrl+l"
+close_tab = "prefix+shift+x"
+
+# Workspaces
+next_workspace = "prefix+ctrl+j"
+previous_workspace = "prefix+ctrl+k"
+workspace_picker = "prefix+space"
+new_workspace = "prefix+shift+c"
+# Liferay checkouts come from wtcli, so open existing worktrees instead of
+# letting Herdr create them; this keeps them grouped under their repo.
+new_worktree = ""
+open_worktree = "prefix+shift+o"
+
+# Agents
+next_agent = "prefix+a"
+previous_agent = "prefix+shift+a"
+
+# Scrollback / copy mode (tmux-vi style)
+copy_mode = "prefix+["
+edit_scrollback = "prefix+e"
+
+# Relocated to free vim keys
+settings = "prefix+comma"
+detach = "prefix+d"
+close_workspace = "prefix+shift+d"
+rename_pane = "prefix+shift+p"
+help = "prefix+?"
+
+[theme]
+name = "catppuccin-latte"
+auto_switch = false
+
+[ui.sound]
+enabled = false
+
+[ui.toast]
+delivery = "herdr"
