@@ -154,7 +154,7 @@
   ;; Custom Project Dashboard Agenda View
   (setq org-agenda-custom-commands
         '(("p" "Project Dashboard"
-           ((todo "TODO|IN_PROGRESS"
+           ((todo "TODO|IN_PROGRESS|WAIT|STRT"
                   ((org-agenda-overriding-header "=== Open Tasks & Features ===")))
             (tags "meeting"
                   ((org-agenda-overriding-header "=== Past Meetings ===")
@@ -196,6 +196,18 @@
   ;; Org Roam capture templates
   (setq org-roam-capture-templates
         `(
+          ;; Generic templates
+          ("g" "Generic")
+          ("n" "Note" entry
+           ,(string-join
+             `("* ${title} :note:"
+               ":PROPERTIES:"
+               ,(format org-property-format ":ID:" "%(org-id-new)") 
+               ":END:"
+               "%?")
+             "\n")
+           :target (file+olp "generic/inbox.org" ("Content Notes")))
+
           ;; Office-related templates
           ("o" "Office" )
 
